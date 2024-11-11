@@ -1,37 +1,37 @@
-//---Mapeamento de Hardware---//
-#define led 15
+/*
+  Rui Santos & Sara Santos - Random Nerd Tutorials
+  Complete project details at https://RandomNerdTutorials.com/esp32-pwm-arduino-ide/
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.  
+  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+*/
 
-//---Variáveis Globais---//
-int frequencia = 5000;
-int canal      =    0;
-int resolucao  =    8;
+// the number of the LED pin
+const int ledPin = 15;  // 15 corresponds to GPIO15
 
-//---Função Principal---//
-void setup()
-{
-  //Configuração para o funcionamento do PWM no LED
-  ledcSetup(canal, frequencia, resolucao);
+// setting PWM properties
+const int freq = 5000;
+const int resolution = 8;
+ 
+void setup(){
+  // configure LED PWM
+  ledcAttach(ledPin, freq, resolution);
   
-  //Associando a GPIO ao canal escolhido do PWM
-  ledcAttachPin(led, canal);
+  // if you want to attach a specific channel, use the following instead
+  //ledcAttachChannel(ledPin, freq, resolution, 0);
 }
-
-//---Loop Infinito---//
-void loop()
-{
-  //Incrementando o brilho do LED
-  for(int i=0; i<= 255; i++)
-  {   
-    //Mudando a intensidade do brilho do LED com uso do PWM
-    ledcWrite(canal, i);
+ 
+void loop(){
+  // increase the LED brightness
+  for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
+    // changing the LED brightness with PWM
+    ledcWrite(ledPin, dutyCycle);
     delay(15);
   }
 
-  //Decrementando o brilho do LED
-  for(int i=255; i>=0; i--)
-  {
-    //Mudando a intensidade do brilho do LED com uso do PWM
-    ledcWrite(canal, i);   
+  // decrease the LED brightness
+  for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
+    // changing the LED brightness with PWM
+    ledcWrite(ledPin, dutyCycle);   
     delay(15);
   }
 }
