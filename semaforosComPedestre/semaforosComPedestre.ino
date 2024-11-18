@@ -1,9 +1,12 @@
-// Display 7 segmentos
+/*
+Display 7 segmentos (Entre parênteses, as portas utilizadas no site 
+wokwi, devido à ausência das utilizadas no hardware real.)
+*/
 const int segA = 18;
-const int segB = 25;
+const int segB = 25; // (34)
 const int segC = 4;
-const int segD = 22;
-const int segE = 23;
+const int segD = 22; // (35)
+const int segE = 23; // (36)
 const int segF = 19;
 const int segG = 21;
 
@@ -14,7 +17,7 @@ const int sem1Vermelho = 13;
 
 // Semáforo 2 (veículos)
 const int sem2Verde = 33;
-const int sem2Amarelo = 32;
+const int sem2Amarelo = 32; // (12)
 const int sem2Vermelho = 26;
 
 // Semáforo pedestre
@@ -22,7 +25,7 @@ const int pedestreVerde = 14;
 const int pedestreVermelho = 15;
 
 // Buzzer
-const int buzzer = 27;
+const int buzzer = 27; // (21)
 
 const int botaoPedestre = 0; // Botão de interrupção
 volatile bool pedRequest = false;
