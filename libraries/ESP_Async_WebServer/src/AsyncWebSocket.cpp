@@ -287,7 +287,6 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncWebServerRequest* request, Async
   _client->onTimeout([](void* r, AsyncClient* c, uint32_t time) { (void)c; ((AsyncWebSocketClient*)(r))->_onTimeout(time); }, this);
   _client->onData([](void* r, AsyncClient* c, void* buf, size_t len) { (void)c; ((AsyncWebSocketClient*)(r))->_onData(buf, len); }, this);
   _client->onPoll([](void* r, AsyncClient* c) { (void)c; ((AsyncWebSocketClient*)(r))->_onPoll(); }, this);
-  _server->_handleEvent(this, WS_EVT_CONNECT, request, NULL, 0);
   delete request;
   memset(&_pinfo, 0, sizeof(_pinfo));
 }
@@ -451,6 +450,8 @@ void AsyncWebSocketClient::close(uint16_t code, const char* message) {
   if (_status != WS_CONNECTED)
     return;
 
+  _status = WS_DISCONNECTING;
+
   if (code) {
     uint8_t packetLen = 2;
     if (message != NULL) {
@@ -496,30 +497,37 @@ void AsyncWebSocketClient::_onDisconnect() {
 }
 
 void AsyncWebSocketClient::_onData(void* pbuf, size_t plen) {
-  // Serial.println("onData");
   _lastMessageTime = millis();
   uint8_t* data = (uint8_t*)pbuf;
   while (plen > 0) {
     if (!_pstate) {
       const uint8_t* fdata = data;
+
       _pinfo.index = 0;
       _pinfo.final = (fdata[0] & 0x80) != 0;
       _pinfo.opcode = fdata[0] & 0x0F;
       _pinfo.masked = (fdata[1] & 0x80) != 0;
       _pinfo.len = fdata[1] & 0x7F;
+
+      // log_d("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
+      // log_d("WS[%" PRIu32 "]: _status = %" PRIu32, _clientId, _status);
+      // log_d("WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index, _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len);
+
       data += 2;
       plen -= 2;
-      if (_pinfo.len == 126) {
+
+      if (_pinfo.len == 126 && plen >= 2) {
         _pinfo.len = fdata[3] | (uint16_t)(fdata[2]) << 8;
         data += 2;
         plen -= 2;
-      } else if (_pinfo.len == 127) {
+
+      } else if (_pinfo.len == 127 && plen >= 8) {
         _pinfo.len = fdata[9] | (uint16_t)(fdata[8]) << 8 | (uint32_t)(fdata[7]) << 16 | (uint32_t)(fdata[6]) << 24 | (uint64_t)(fdata[5]) << 32 | (uint64_t)(fdata[4]) << 40 | (uint64_t)(fdata[3]) << 48 | (uint64_t)(fdata[2]) << 56;
         data += 8;
         plen -= 8;
       }
 
-      if (_pinfo.masked) {
+      if (_pinfo.masked && plen >= 4) { // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not decrement plen which is already 0.
         memcpy(_pinfo.mask, data, 4);
         data += 4;
         plen -= 4;
@@ -772,6 +780,7 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient* client, AwsEventType typ
 
 AsyncWebSocketClient* AsyncWebSocket::_newClient(AsyncWebServerRequest* request) {
   _clients.emplace_back(request, this);
+  _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
   return &_clients.back();
 }
 

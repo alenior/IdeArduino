@@ -28,14 +28,14 @@
 
 using namespace asyncsrv;
 
-enum { PARSE_REQ_START,
-       PARSE_REQ_HEADERS,
-       PARSE_REQ_BODY,
-       PARSE_REQ_END,
-       PARSE_REQ_FAIL };
+enum { PARSE_REQ_START = 0,
+       PARSE_REQ_HEADERS = 1,
+       PARSE_REQ_BODY = 2,
+       PARSE_REQ_END = 3,
+       PARSE_REQ_FAIL = 4 };
 
 AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer* s, AsyncClient* c)
-    : _client(c), _server(s), _handler(NULL), _response(NULL), _temp(), _parseState(0), _version(0), _method(HTTP_ANY), _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP), _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false), _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0), _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0), _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _tempObject(NULL) {
+    : _client(c), _server(s), _handler(NULL), _response(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0), _method(HTTP_ANY), _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP), _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false), _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0), _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0), _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _tempObject(NULL) {
   c->onError([](void* r, AsyncClient* c, int8_t error) { (void)c; AsyncWebServerRequest *req = (AsyncWebServerRequest*)r; req->_onError(error); }, this);
   c->onAck([](void* r, AsyncClient* c, size_t len, uint32_t time) { (void)c; AsyncWebServerRequest *req = (AsyncWebServerRequest*)r; req->_onAck(len, time); }, this);
   c->onDisconnect([](void* r, AsyncClient* c) { AsyncWebServerRequest *req = (AsyncWebServerRequest*)r; req->_onDisconnect(); delete c; }, this);
@@ -67,6 +67,18 @@ AsyncWebServerRequest::~AsyncWebServerRequest() {
 }
 
 void AsyncWebServerRequest::_onData(void* buf, size_t len) {
+  // SSL/TLS handshake detection
+#ifndef ASYNC_TCP_SSL_ENABLED
+  if (_parseState == PARSE_REQ_START && len && ((uint8_t*)buf)[0] == 0x16) { // 0x16 indicates a Handshake message (SSL/TLS).
+  #ifdef ESP32
+    log_d("SSL/TLS handshake detected: resetting connection");
+  #endif
+    _parseState = PARSE_REQ_FAIL;
+    _client->abort();
+    return;
+  }
+#endif
+
   size_t i = 0;
   while (true) {
 
@@ -74,6 +86,12 @@ void AsyncWebServerRequest::_onData(void* buf, size_t len) {
       // Find new line in buf
       char* str = (char*)buf;
       for (i = 0; i < len; i++) {
+        // Check for null characters in header
+        if (!str[i]) {
+          _parseState = PARSE_REQ_FAIL;
+          _client->abort();
+          return;
+        }
         if (str[i] == '\n') {
           break;
         }
@@ -142,6 +160,8 @@ void AsyncWebServerRequest::_onData(void* buf, size_t len) {
         if (!_sent) {
           if (!_response)
             send(501, T_text_plain, "Handler did not handle the request");
+          else if (!_response->_sourceValid())
+            send(500, T_text_plain, "Invalid data in handler");
           _client->setRxTimeout(0);
           _response->_respond(this);
           _sent = true;
@@ -246,6 +266,8 @@ bool AsyncWebServerRequest::_parseReqHead() {
     _method = HTTP_HEAD;
   } else if (m == T_OPTIONS) {
     _method = HTTP_OPTIONS;
+  } else {
+    return false;
   }
 
   String g;
@@ -256,6 +278,9 @@ bool AsyncWebServerRequest::_parseReqHead() {
   }
   _url = urlDecode(u);
   _addGetParams(g);
+
+  if (!_url.length())
+    return false;
 
   if (!_temp.startsWith(T_HTTP_1_0))
     _version = 1;
@@ -564,10 +589,14 @@ void AsyncWebServerRequest::_parseLine() {
   if (_parseState == PARSE_REQ_START) {
     if (!_temp.length()) {
       _parseState = PARSE_REQ_FAIL;
-      _client->close();
+      _client->abort();
     } else {
-      _parseReqHead();
-      _parseState = PARSE_REQ_HEADERS;
+      if (_parseReqHead()) {
+        _parseState = PARSE_REQ_HEADERS;
+      } else {
+        _parseState = PARSE_REQ_FAIL;
+        _client->abort();
+      }
     }
     return;
   }
@@ -589,6 +618,8 @@ void AsyncWebServerRequest::_parseLine() {
         if (!_sent) {
           if (!_response)
             send(501, T_text_plain, "Handler did not handle the request");
+          else if (!_response->_sourceValid())
+            send(500, T_text_plain, "Invalid data in handler");
           _client->setRxTimeout(0);
           _response->_respond(this);
           _sent = true;
@@ -765,14 +796,6 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse* response) {
   if (_response)
     delete _response;
   _response = response;
-  if (_response == NULL) {
-    _client->close(true);
-    _onDisconnect();
-    _sent = true;
-    return;
-  }
-  if (!_response->_sourceValid())
-    send(500);
 }
 
 void AsyncWebServerRequest::redirect(const char* url, int code) {
