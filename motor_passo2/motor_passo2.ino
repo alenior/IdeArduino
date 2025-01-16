@@ -1,3 +1,8 @@
+#include <Stepper.h>
+
+// Define o número de passos para uma rotação completa
+#define STEPS_PER_REV 2024
+
 // Define as portas do ESP32 conectadas ao ULN2003A
 #define IN1 25
 #define IN2 26
@@ -7,72 +12,89 @@
 // Define a porta do botão Enable
 #define BUTTON_PIN 0
 
-// Variáveis para o controle do motor
-int stepsPerRevolution = 2048; // Número de passos para uma rotação completa
-int stepDelay = 2;             // Tempo entre passos (ms)
-int currentStep = 0;           // Passo atual
-bool clockwise = true;         // Direção inicial: Horário
+// Define a porta do buzzer
+#define BUZZER_PIN 13
 
-// Sequência de ativação das bobinas do motor
-int stepSequence[8][4] = {
-  {1, 0, 0, 0},
-  {1, 1, 0, 0},
-  {0, 1, 0, 0},
-  {0, 1, 1, 0},
-  {0, 0, 1, 0},
-  {0, 0, 1, 1},
-  {0, 0, 0, 1},
-  {1, 0, 0, 1}
-};
+// Cria uma instância do motor de passo
+Stepper stepper(STEPS_PER_REV, IN1, IN3, IN2, IN4);
+
+// Variáveis para controle do botão e direção do motor
+bool clockwise = true;       // Sentido inicial do motor
+bool lastButtonState = HIGH; // Estado anterior do botão
+bool motorDirectionChanged = false; // Controle de mudança de direção
+
+unsigned long previousMillis = 0; // Armazena o tempo do último bip
+const long interval = 500;        // Intervalo de tempo entre bips (500ms para bips claros)
+bool buzzerState = false;         // Estado atual do buzzer (ligado ou desligado)
 
 void setup() {
-  // Configura as portas do motor como saída
+  // Configura a velocidade do motor (em rotações por minuto)
+  stepper.setSpeed(10);
+
+  // Configura o botão como entrada com pull-up interno
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  // Inicializa as portas do motor como saída
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
-  // Configura o botão como entrada com pull-up interno
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  // Configura o pino do buzzer como saída
+  pinMode(BUZZER_PIN, OUTPUT);
 
-  // Inicializa as bobinas como desligadas
-  stopMotor();
+  // Inicializa o monitor serial para depuração
+  Serial.begin(9600);
+  Serial.println("Sistema iniciado");
 }
 
 void loop() {
-  // Verifica o estado do botão
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    // Botão pressionado: mudar para anti-horário
-    clockwise = false;
-  } else {
-    // Botão não pressionado: girar no sentido horário
-    clockwise = true;
+  // Lê o estado atual do botão
+  bool currentButtonState = digitalRead(BUTTON_PIN);
+
+  // Verifica se houve uma transição de HIGH para LOW (pressionado)
+  if (currentButtonState == LOW && lastButtonState == HIGH) {
+    // Alterna o sentido do motor
+    clockwise = !clockwise;
+
+    // Atualiza a flag de mudança
+    motorDirectionChanged = true;
+
+    // Exibe o novo sentido no monitor serial
+    Serial.println(clockwise ? "Sentido horário" : "Sentido anti-horário");
+
+    // Pequeno atraso para evitar múltiplas leituras de um único clique
+    delay(50);
   }
 
-  // Realiza um passo do motor
-  stepMotor(clockwise);
-  delay(stepDelay);
-}
+  // Atualiza o estado anterior do botão
+  lastButtonState = currentButtonState;
 
-// Função para realizar um passo no motor
-void stepMotor(bool clockwise) {
-  if (clockwise) {
-    currentStep = (currentStep + 1) % 8; // Avança na sequência
-  } else {
-    currentStep = (currentStep - 1 + 8) % 8; // Retrocede na sequência
+  // Move o motor no sentido atualizado
+  if (motorDirectionChanged || currentButtonState == HIGH) {
+    if (clockwise) {
+      stepper.step(1); // Gira no sentido horário
+      noTone(BUZZER_PIN); // Desliga o buzzer
+    } else {
+      stepper.step(-1); // Gira no sentido anti-horário
+
+      // Gera bips claros enquanto o motor gira no sentido anti-horário
+      unsigned long currentMillis = millis();
+      if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis;
+
+        // Alterna o estado do buzzer
+        buzzerState = !buzzerState;
+
+        if (buzzerState) {
+          tone(BUZZER_PIN, 1000); // Ativa o buzzer com frequência de 1000 Hz (para o bip)
+        } else {
+          noTone(BUZZER_PIN); // Desativa o buzzer (fim do bip)
+        }
+      }
+    }
+    motorDirectionChanged = false; // Reseta a flag após movimento
   }
 
-  // Ativa as bobinas conforme a sequência
-  digitalWrite(IN1, stepSequence[currentStep][0]);
-  digitalWrite(IN2, stepSequence[currentStep][1]);
-  digitalWrite(IN3, stepSequence[currentStep][2]);
-  digitalWrite(IN4, stepSequence[currentStep][3]);
-}
-
-// Função para desligar todas as bobinas
-void stopMotor() {
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
+  delay(2); // Ajuste para suavizar o movimento do motor
 }
