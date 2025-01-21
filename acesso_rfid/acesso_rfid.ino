@@ -133,7 +133,7 @@ void loop() {
   lcd.print("Informe senha:");
   lcd.setCursor(0, 1);
 
-  while (entradaSenha.length() < 7) { // true
+  while (true) {
     lcd.cursor();
     char key = keypad.getKey();
 
@@ -163,7 +163,9 @@ void loop() {
             Serial.print("Senha informada: ");
             senhaDigitada = true;
           }
-          Serial.print(key);
+          if (key != '#') {
+            Serial.print(key);
+          }
         }
       } else {
         // Adicionar caractere à senha
@@ -178,13 +180,16 @@ void loop() {
             Serial.print("Senha informada: ");
             senhaDigitada = true;
           }
-          Serial.print(key);
+          if (key != '#') {
+            Serial.print(key);
+          }
         }
       }
     }
     lcd.noCursor();
-    senhaDigitada == false;
   }
+
+  senhaDigitada = false;
 
   rfid.PICC_HaltA();
   digitalWrite(ledYellow, LOW);
