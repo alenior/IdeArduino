@@ -28,6 +28,7 @@ const int ledYellow = 5;
 const int ledGreen = 16;
 const int buzzer = 17;
 const int relayPin = 13;
+bool senhaDigitada = false;
 
 // Senha padrão
 String senha = "123456";
@@ -36,9 +37,10 @@ String entradaSenha = "";
 // Funções auxiliares
 void acessoNegado() {
   lcd.clear();
-  lcd.print("Senha errada");
+  lcd.noCursor();
+  lcd.print("Senha errada!");
   lcd.setCursor(0, 1);
-  lcd.print("Não autorizado!");
+  lcd.print("Acesso negado!");
   digitalWrite(buzzer, HIGH);
   delay(500);
   digitalWrite(buzzer, LOW);
@@ -50,7 +52,8 @@ void acessoNegado() {
   Serial.println("Senha errada! Acesso não autorizado!");
 
   delay(2000);
-  lcd.print("Acesso restrito");
+  lcd.clear();
+  lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
   lcd.print("Credencial?");
 
@@ -59,7 +62,8 @@ void acessoNegado() {
 
 void acessoLiberado() {
   lcd.clear();
-  lcd.print("Acesso liberado");
+  lcd.noCursor();
+  lcd.print("Acesso liberado.");
   lcd.setCursor(0, 1);
   lcd.print("Bem vindo!");
 
@@ -77,7 +81,7 @@ void acessoLiberado() {
   digitalWrite(ledGreen, LOW);
   digitalWrite(ledRed, HIGH);
   lcd.clear();
-  lcd.print("Acesso restrito");
+  lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
   lcd.print("Credencial?");
 
@@ -89,6 +93,7 @@ void setup() {
   Wire.begin(4, 15); // Inicializa I2C no LCD, com portas diferentes das padrões (21 e 22).
   lcd.begin(16, 2);
   lcd.backlight();
+  lcd.clear();
   lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
   lcd.print("Credencial?");
@@ -105,6 +110,7 @@ void setup() {
   rfid.PCD_Init();
 
   Serial.begin(9600);
+  Serial.println("Sistema ativo: aguardando tentativa de acesso.");
 }
 
 void loop() {
@@ -116,38 +122,68 @@ void loop() {
   lcd.print("Tag detectada.");
   lcd.setCursor(0, 1);
   lcd.print("Exige senha!");
+
   digitalWrite(ledYellow, HIGH);
-  delay(1000);
+  delay(2000);
 
   Serial.println("Tag detectada: exige senha.");
 
   entradaSenha = "";
   lcd.clear();
-  lcd.print("Informe a senha:");
+  lcd.print("Informe senha:");
   lcd.setCursor(0, 1);
 
-  Serial.print("Senha informada: ");
-
-  while (entradaSenha.length() < 6) {
+  while (entradaSenha.length() < 7) { // true
     lcd.cursor();
     char key = keypad.getKey();
-    Serial.print(key);
+
     if (key) {
-      entradaSenha += key;
-      lcd.print("*");
-      digitalWrite(buzzer, HIGH);
-      delay(250);
-      digitalWrite(buzzer, LOW);
-      delay(250);
+      if (key == '*') {
+        // Confirmação da senha
+        Serial.println("");
+        if (entradaSenha == senha) {
+          acessoLiberado();
+        } else {
+          acessoNegado();
+        }
+        break;
+      } else if (key == '#') {
+        // Apagar último caractere
+        if (entradaSenha.length() > 0) {
+          entradaSenha.remove(entradaSenha.length() - 1);
+          digitalWrite(buzzer, HIGH);
+          delay(250);
+          digitalWrite(buzzer, LOW);
+
+          lcd.setCursor(entradaSenha.length(), 1);
+          lcd.print(" ");
+          lcd.setCursor(entradaSenha.length(), 1);
+
+          if (senhaDigitada == false) {
+            Serial.print("Senha informada: ");
+            senhaDigitada = true;
+          }
+          Serial.print(key);
+        }
+      } else {
+        // Adicionar caractere à senha
+        if (entradaSenha.length() < 6) {
+          entradaSenha += key;
+          lcd.print("*");
+          digitalWrite(buzzer, HIGH);
+          delay(250);
+          digitalWrite(buzzer, LOW);
+
+          if (senhaDigitada == false) {
+            Serial.print("Senha informada: ");
+            senhaDigitada = true;
+          }
+          Serial.print(key);
+        }
+      }
     }
-  }
-
-  Serial.println("");
-
-  if (entradaSenha == senha) {
-    acessoLiberado();
-  } else {
-    acessoNegado();
+    lcd.noCursor();
+    senhaDigitada == false;
   }
 
   rfid.PICC_HaltA();
