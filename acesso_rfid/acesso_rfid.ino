@@ -101,7 +101,7 @@ bool verificarCartaoAutorizado(String idCartao) {
       lcd.clear();
       lcd.print("Usuário master");
       lcd.setCursor(0, 1);
-      lcd.print("identificado.");
+      lcd.print("autorizado.");
       delay(1000);
       return true;
     }
@@ -151,7 +151,7 @@ void loop() {
 
   if (verificarCartaoAutorizado(idCartao)) {
     acessoLiberado(); // Libera acesso sem senha para cartões autorizados
-    Serial.print("Usuario máster identificado.")
+    Serial.print("Usuario máster autorizado.")
   } else {
     lcd.clear();
     lcd.print("Tag detectada.");
