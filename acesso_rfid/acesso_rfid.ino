@@ -98,6 +98,11 @@ void acessoLiberado() {
 bool verificarCartaoAutorizado(String idCartao) {
   for (int i = 0; i < numCartoesAutorizados; i++) {
     if (cartoesAutorizados[i] == idCartao) {
+      lcd.clear();
+      lcd.print("Usuário master");
+      lcd.setCursor(0, 1);
+      lcd.print("identificado.");
+      delay(1000);
       return true;
     }
   }
@@ -146,11 +151,15 @@ void loop() {
 
   if (verificarCartaoAutorizado(idCartao)) {
     acessoLiberado(); // Libera acesso sem senha para cartões autorizados
+    Serial.print("Usuario máster identificado.")
   } else {
     lcd.clear();
     lcd.print("Tag detectada.");
     lcd.setCursor(0, 1);
     lcd.print("Exige senha!");
+
+    Serial.print("Cartão detectado: ");
+    Serial.println(idCartao);
 
     digitalWrite(ledYellow, HIGH);
     delay(2000);
