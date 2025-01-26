@@ -151,7 +151,7 @@ void loop() {
 
   if (verificarCartaoAutorizado(idCartao)) {
     acessoLiberado(); // Libera acesso sem senha para cartões autorizados
-    Serial.print("Usuario máster autorizado.")
+    Serial.print("Usuario máster autorizado.");
   } else {
     lcd.clear();
     lcd.print("Tag detectada.");
