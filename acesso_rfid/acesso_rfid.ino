@@ -63,8 +63,6 @@ void acessoNegado() {
   lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
   lcd.print("Credencial?");
-
-  Serial.println("Sistema ativo: aguardando tentativa de acesso.");
 }
 
 void acessoLiberado() {
@@ -91,15 +89,13 @@ void acessoLiberado() {
   lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
   lcd.print("Credencial?");
-
-  Serial.println("Sistema ativo: aguardando tentativa de acesso.");
 }
 
 bool verificarCartaoAutorizado(String idCartao) {
   for (int i = 0; i < numCartoesAutorizados; i++) {
     if (cartoesAutorizados[i] == idCartao) {
       lcd.clear();
-      lcd.print("Usuário master");
+      lcd.print("Usuario master");
       lcd.setCursor(0, 1);
       lcd.print("autorizado.");
       delay(1000);
@@ -150,16 +146,14 @@ void loop() {
   Serial.println(idCartao);
 
   if (verificarCartaoAutorizado(idCartao)) {
+    Serial.println("Usuario máster identificado.");
     acessoLiberado(); // Libera acesso sem senha para cartões autorizados
-    Serial.print("Usuario máster autorizado.");
+    Serial.println("Sistema ativo: aguardando tentativa de acesso.");
   } else {
     lcd.clear();
     lcd.print("Tag detectada.");
     lcd.setCursor(0, 1);
     lcd.print("Exige senha!");
-
-    Serial.print("Cartão detectado: ");
-    Serial.println(idCartao);
 
     digitalWrite(ledYellow, HIGH);
     delay(2000);
@@ -181,6 +175,7 @@ void loop() {
           } else {
             acessoNegado();
           }
+          Serial.println("Sistema ativo: aguardando tentativa de acesso.");
           break;
         } else if (key == '#') {
           if (entradaSenha.length() > 0) {
