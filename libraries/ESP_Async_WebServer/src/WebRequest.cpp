@@ -141,6 +141,7 @@ void AsyncWebServerRequest::_onData(void* buf, size_t len) {
           }
         }
         if (!_isPlainPost) {
+          // ESP_LOGD("AsyncWebServer", "_isPlainPost: %d, _handler: %p", _isPlainPost, _handler);
           if (_handler)
             _handler->handleBody(this, (uint8_t*)buf, len, _parsedLength, _contentLength);
           _parsedLength += len;
