@@ -7,8 +7,7 @@
 /* Fill-in information from Blynk Device Info here */
 #define BLYNK_TEMPLATE_ID           "TMPL2Nvh-55Cv"
 #define BLYNK_TEMPLATE_NAME         "Quickstart Template"
-#define BLYNK_AUTH_TOKEN            "m0t1xQdcLXyCRA0tbK831UzQTiYv7kx9"
-#define ledVermelho 2
+#define BLYNK_AUTH_TOKEN            "aNC-dTS08hARfXUIET1-fu_4GkUxP8Jj"
 
 /* Comment this out to disable prints and save space */
 #define BLYNK_PRINT Serial
@@ -20,17 +19,16 @@
 
 // Your WiFi credentials.
 // Set password to "" for open networks.
-char ssid[] = "Alencar's Galaxy M14 5G";
+char ssid[] = "GCNET-Alencar";
 char pass[] = "11223344";
 
 BlynkTimer timer;
 
-// This function is called every time the Virtual Pin 0 state changes
+// This function is called every time the Virtual Pin 0 state changes (DA PLATAFORMA BLYNK PARA A PLACA ESP32)
 BLYNK_WRITE(V0)
 {
   // Set incoming value from pin V0 to a variable
   int value = param.asInt();
-  digitalWrite(ledVermelho, value);
 
   // Update state
   Blynk.virtualWrite(V1, value);
@@ -45,7 +43,7 @@ BLYNK_CONNECTED()
   Blynk.setProperty(V3, "url", "https://docs.blynk.io/en/getting-started/what-do-i-need-to-blynk/how-quickstart-device-was-made");
 }
 
-// This function sends Arduino's uptime every second to Virtual Pin 2.
+// This function sends Arduino's uptime every second to Virtual Pin 2. (DA PLACA ESP32 PARA A PLATAFORMA BLYNK)
 void myTimerEvent()
 {
   // You can send any value at any time.
@@ -57,7 +55,6 @@ void setup()
 {
   // Debug console
   Serial.begin(115200);
-  pinMode(ledVermelho, OUTPUT);
 
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
   // You can also specify server:

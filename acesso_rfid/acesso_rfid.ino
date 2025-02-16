@@ -4,6 +4,102 @@
 #include <Keypad.h>
 #include <MFRC522.h>
 
+#define BLYNK_TEMPLATE_ID           "TMPL2Nvh-55Cv"
+#define BLYNK_TEMPLATE_NAME         "Quickstart Template"
+#define BLYNK_AUTH_TOKEN            "aNC-dTS08hARfXUIET1-fu_4GkUxP8Jj"
+#define relayPin 13
+
+/* Comment this out to disable prints and save space */
+#define BLYNK_PRINT Serial
+
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+#include <HTTPClient.h>
+#include <UrlEncode.h>
+
+// +international_country_code + phone number
+// Brasil +55, example: +5585987288807
+String phoneNumber = "+558587288807";
+String apiKey = "2272372";
+
+void sendMessage(String message){
+
+  // Data to send with HTTP POST
+  String url = "https://api.callmebot.com/whatsapp.php?phone=" + phoneNumber + "&apikey=" + apiKey + "&text=" + urlEncode(message);    
+  HTTPClient http;
+  http.begin(url);
+
+  // Specify content-type header
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  
+  // Send HTTP POST request
+  int httpResponseCode = http.POST(url);
+  if (httpResponseCode == 200){
+    Serial.print("Message sent successfully");
+  }
+  else{
+    Serial.println("Error sending the message");
+    Serial.print("HTTP response code: ");
+    Serial.println(httpResponseCode);
+  }
+
+  // Free resources
+  http.end();
+}
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "GCNET-Alencar";
+char pass[] = "11223344";
+
+BlynkTimer timer;
+
+// Variáveis globais para controle do temporizador
+unsigned long tempoAnterior = 0; // Armazena o tempo inicial
+bool relayAtivado = false;       // Indica se o relé foi ativado
+
+// This function is called every time the Virtual Pin 0 state changes (DA PLATAFORMA BLYNK PARA A PLACA ESP32)
+BLYNK_WRITE(V0) {
+  // Verifica se o valor recebido é 1 (relé ativado)
+  if (param.asInt() == 1) {
+    digitalWrite(relayPin, HIGH); // Ativa o relé
+
+    // Send Message to WhatsAPP
+    sendMessage("Porta aberta remotamente!");
+
+    relayAtivado = true;          // Marca que o relé foi ativado
+    tempoAnterior = millis();     // Registra o tempo atual
+    Blynk.virtualWrite(V0, 1);   // Atualiza o estado do botão no Blynk
+  } else {
+    digitalWrite(relayPin, LOW);  // Desativa o relé (caso o botão seja desligado manualmente)
+
+    // Send Message to WhatsAPP
+    sendMessage("Porta fechada remotamente!");
+
+    relayAtivado = false;         // Reseta o estado do relé
+    Blynk.virtualWrite(V0, 0);   // Atualiza o estado do botão no Blynk
+  }
+}
+
+// This function is called every time the device is connected to the Blynk.Cloud
+BLYNK_CONNECTED()
+{
+  // Change Web Link Button message to "Congratulations!"
+  Blynk.setProperty(V3, "offImageUrl", "https://static-image.nyc3.cdn.digitaloceanspaces.com/general/fte/congratulations.png");
+  Blynk.setProperty(V3, "onImageUrl",  "https://static-image.nyc3.cdn.digitaloceanspaces.com/general/fte/congratulations_pressed.png");
+  Blynk.setProperty(V3, "url", "https://docs.blynk.io/en/getting-started/what-do-i-need-to-blynk/how-quickstart-device-was-made");
+}
+
+// This function sends Arduino's uptime every second to Virtual Pin 2. (DA PLACA ESP32 PARA A PLATAFORMA BLYNK)
+void myTimerEvent()
+{
+  // You can send any value at any time.
+  // Please don't send more that 10 values per second.
+  Blynk.virtualWrite(V2, millis() / 1000);
+}
+
 // Configurações de hardware
 #define RST_PIN 22
 #define SS_PIN 21
@@ -27,7 +123,7 @@ const int ledRed = 2;
 const int ledYellow = 5;
 const int ledGreen = 16;
 const int buzzer = 17;
-const int relayPin = 13;
+// const int relayPin = 13;
 bool senhaDigitada = false;
 
 // Senha padrão
@@ -78,11 +174,19 @@ void acessoLiberado() {
   digitalWrite(ledYellow, LOW);
   digitalWrite(ledGreen, HIGH);
   digitalWrite(relayPin, HIGH);
+
+  // Send Message to WhatsAPP
+  sendMessage("Porta aberta!");
+
   digitalWrite(buzzer, HIGH);
   delay(100);
   digitalWrite(buzzer, LOW);
   delay(3000);
   digitalWrite(relayPin, LOW);
+
+  // Send Message to WhatsAPP
+  sendMessage("Porta fechada!");
+
   digitalWrite(ledGreen, LOW);
   digitalWrite(ledRed, HIGH);
   lcd.clear();
@@ -106,6 +210,28 @@ bool verificarCartaoAutorizado(String idCartao) {
 }
 
 void setup() {
+
+  // Debug console
+  // Serial.begin(115200);
+
+  WiFi.begin(ssid, pass);
+  Serial.println("Connecting");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  // You can also specify server:
+  //Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass, "blynk.cloud", 80);
+  //Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass, IPAddress(192,168,1,100), 8080);
+
+  // Setup a function to be called every second
+  timer.setInterval(1000L, myTimerEvent);
+
   // Configuração inicial
   Wire.begin(4, 15); // Inicializa I2C no LCD, com portas diferentes das padrões (21 e 22).
   lcd.begin(16, 2);
@@ -131,6 +257,24 @@ void setup() {
 }
 
 void loop() {
+  Blynk.run();
+  timer.run();
+
+  // Verifica se o relé foi ativado e se já se passaram 3 segundos
+  if (relayAtivado && (millis() - tempoAnterior >= 3000)) {
+    digitalWrite(relayPin, LOW); // Desativa o relé
+
+    // Send Message to WhatsAPP
+    sendMessage("Porta fechada remotamente!");
+
+    relayAtivado = false;        // Reseta o estado do relé
+    Blynk.virtualWrite(V0, 0);  // Atualiza o estado do botão no Blynk
+  }
+
+  // You can inject your own code or combine it with other sketches.
+  // Check other examples on how to communicate with Blynk. Remember
+  // to avoid delay() function!
+
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
     return;
   }
@@ -148,6 +292,10 @@ void loop() {
   if (verificarCartaoAutorizado(idCartao)) {
     Serial.println("Usuario máster identificado.");
     acessoLiberado(); // Libera acesso sem senha para cartões autorizados
+
+    // Send Message to WhatsAPP
+    sendMessage("Acesso liberado ao usuário máster!");
+
     Serial.println("Sistema ativo: aguardando tentativa de acesso.");
   } else {
     lcd.clear();
@@ -172,8 +320,14 @@ void loop() {
           Serial.println("");
           if (entradaSenha == senha) {
             acessoLiberado();
+
+            // Send Message to WhatsAPP
+            sendMessage("Acesso liberado por senha!");
+
           } else {
             acessoNegado();
+            // Send Message to WhatsAPP
+            sendMessage("Tentativa de acesso negada: senha errada!");
           }
           Serial.println("Sistema ativo: aguardando tentativa de acesso.");
           break;
