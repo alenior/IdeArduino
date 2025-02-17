@@ -19,8 +19,10 @@
 #include <HTTPClient.h>
 #include <UrlEncode.h>
 
+hd44780_I2Cexp lcd(0x27, 16, 2);
+
 // +international_country_code + phone number
-// Brasil +55, example: +5585987288807
+// Brasil +55, example: +558587288807
 String phoneNumber = "+558587288807";
 String apiKey = "2272372";
 
@@ -51,6 +53,7 @@ void sendMessage(String message){
 
 // Your WiFi credentials.
 // Set password to "" for open networks.
+// char ssid[] = "Alencar's Galaxy M14 5G";
 char ssid[] = "GCNET-Alencar";
 char pass[] = "11223344";
 
@@ -66,6 +69,17 @@ BLYNK_WRITE(V0) {
   if (param.asInt() == 1) {
     digitalWrite(relayPin, HIGH); // Ativa o relé
 
+    lcd.clear();
+    lcd.noCursor();
+    lcd.print("Acesso liberado");
+    lcd.setCursor(0, 1);
+    lcd.print("remotamente!");
+    delay(2000);
+    lcd.clear();
+    lcd.print("Acesso restrito!");
+    lcd.setCursor(0, 1);
+    lcd.print("Credencial?");
+
     // Send Message to WhatsAPP
     sendMessage("Porta aberta remotamente!");
 
@@ -74,6 +88,17 @@ BLYNK_WRITE(V0) {
     Blynk.virtualWrite(V0, 1);   // Atualiza o estado do botão no Blynk
   } else {
     digitalWrite(relayPin, LOW);  // Desativa o relé (caso o botão seja desligado manualmente)
+
+    lcd.clear();
+    lcd.noCursor();
+    lcd.print("Acesso encerrado");
+    lcd.setCursor(0, 1);
+    lcd.print("remotamente!");
+    delay(2000);
+    lcd.clear();
+    lcd.print("Acesso restrito!");
+    lcd.setCursor(0, 1);
+    lcd.print("Credencial?");
 
     // Send Message to WhatsAPP
     sendMessage("Porta fechada remotamente!");
@@ -104,8 +129,6 @@ void myTimerEvent()
 #define RST_PIN 22
 #define SS_PIN 21
 MFRC522 rfid(SS_PIN, RST_PIN);
-
-hd44780_I2Cexp lcd(0x27, 16, 2);
 
 const byte ROWS = 4;
 const byte COLS = 3;
@@ -154,7 +177,7 @@ void acessoNegado() {
 
   Serial.println("Senha errada! Acesso não autorizado!");
 
-  delay(2000);
+  delay(3000);
   lcd.clear();
   lcd.print("Acesso restrito!");
   lcd.setCursor(0, 1);
@@ -263,6 +286,17 @@ void loop() {
   // Verifica se o relé foi ativado e se já se passaram 3 segundos
   if (relayAtivado && (millis() - tempoAnterior >= 3000)) {
     digitalWrite(relayPin, LOW); // Desativa o relé
+
+    lcd.clear();
+    lcd.noCursor();
+    lcd.print("Acesso encerrado");
+    lcd.setCursor(0, 1);
+    lcd.print("remotamente!");
+    delay(3000);
+    lcd.clear();
+    lcd.print("Acesso restrito!");
+    lcd.setCursor(0, 1);
+    lcd.print("Credencial?");
 
     // Send Message to WhatsAPP
     sendMessage("Porta fechada remotamente!");
