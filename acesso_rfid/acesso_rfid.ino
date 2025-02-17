@@ -5,7 +5,7 @@
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>
+
 #include <HTTPClient.h>
 #include <UrlEncode.h>
 
@@ -18,6 +18,8 @@
 // Configurações de hardware
 #define RST_PIN 22
 #define SS_PIN 21
+
+#include <BlynkSimpleEsp32.h>
 
 hd44780_I2Cexp lcd(0x27, 16, 2);
 
@@ -49,8 +51,8 @@ void sendMessage(String message){
   http.end();
 }
 // Your WiFi credentials: Set password to "" for open networks.
-// char ssid[] = "Alencar's Galaxy M14 5G";
-char ssid[] = "GCNET-Alencar";
+char ssid[] = "Alencar's Galaxy M14 5G";
+// char ssid[] = "GCNET-Alencar";
 char pass[] = "11223344";
 BlynkTimer timer;
 // Variáveis globais para controle do temporizador
