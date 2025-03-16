@@ -15,7 +15,7 @@
 
 [![Documentation](https://img.shields.io/badge/Wiki-ESPAsyncWebServer-blue?logo=github)](https://github.com/ESP32Async/ESPAsyncWebServer/wiki)
 
-## Asynchronous HTTP and WebSocket Server Library for ESP32, ESP8266 and RP2040
+## Asynchronous HTTP and WebSocket Server Library for ESP32, ESP8266, RP2040 and RP2350
 
 Supports: WebSocket, SSE, Authentication, Arduino Json 7, File Upload, Static File serving, URL Rewrite, URL Redirect, etc.
 
@@ -100,7 +100,7 @@ platform = https://github.com/maxgerhardt/platform-raspberrypi.git
 board = rpipicow
 board_build.core = earlephilhower
 lib_deps =
-  ayushsharma82/RPAsyncTCP@1.3.0
+  ayushsharma82/RPAsyncTCP@^1.3.1
   ESP32Async/ESPAsyncWebServer
 lib_ignore =
   lwIP_ESPHost

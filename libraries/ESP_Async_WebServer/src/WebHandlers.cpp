@@ -222,7 +222,11 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     etag = lw ^ request->_tempFile.size();  // etag combines file size and lastmod timestamp
 #endif
   } else {
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+    etag = String(request->_tempFile.size());
+#else
     etag = request->_tempFile.size();
+#endif
   }
 
   bool not_modified = false;
