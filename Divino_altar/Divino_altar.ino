@@ -11,7 +11,7 @@ Stepper motor(STEPS_PER_REV, IN1, IN3, IN2, IN4);
 
 // Configuração dos LEDs WS2812B com FastLED
 #define LED_PIN     5    // Pino de controle
-#define LED_COUNT   8    // Número de LEDs
+#define LED_COUNT   4    // Número de LEDs
 CRGB leds[LED_COUNT];    // Array para armazenar os LEDs
 
 void setup() {
