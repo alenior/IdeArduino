@@ -187,15 +187,6 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
   return found;
 }
 
-uint8_t AsyncStaticWebHandler::_countBits(const uint8_t value) const {
-  uint8_t w = value;
-  uint8_t n;
-  for (n = 0; w != 0; n++) {
-    w &= w - 1;
-  }
-  return n;
-}
-
 void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   // Get the filename from request->_tempObject and free it
   String filename((char *)request->_tempObject);

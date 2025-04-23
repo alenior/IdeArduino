@@ -38,7 +38,7 @@ It is also deployed in these registries:
 
 - Arduino Library Registry: [https://github.com/arduino/library-registry](https://github.com/arduino/library-registry)
 
-- ESP Component Registry [https://components.espressif.com/components/esp32async/espasyncbebserver/](https://components.espressif.com/components/esp32async/espasyncbebserver/)
+- ESP Component Registry [https://components.espressif.com/components/esp32async/espasyncwebserver](https://components.espressif.com/components/esp32async/espasyncwebserver)
 
 - PlatformIO Registry: [https://registry.platformio.org/libraries/esp32async/ESPAsyncWebServer](https://registry.platformio.org/libraries/esp32async/ESPAsyncWebServer)
 
@@ -100,7 +100,7 @@ platform = https://github.com/maxgerhardt/platform-raspberrypi.git
 board = rpipicow
 board_build.core = earlephilhower
 lib_deps =
-  ayushsharma82/RPAsyncTCP@^1.3.1
+  ayushsharma82/RPAsyncTCP@^1.3.2
   ESP32Async/ESPAsyncWebServer
 lib_ignore =
   lwIP_ESPHost
