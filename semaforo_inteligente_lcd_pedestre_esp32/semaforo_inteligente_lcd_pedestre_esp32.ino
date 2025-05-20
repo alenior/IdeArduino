@@ -32,19 +32,25 @@ bool tempo_fluxo_a_ativo = false;
 bool tempo_fluxo_b_ativo = false;
 volatile bool pedestre_chama = false;
 
+volatile unsigned long ultima_interrupt_a = 0;
+volatile unsigned long ultima_interrupt_b = 0;
+const unsigned long intervalo_debounce = 200; // 200ms
+
 // Atualiza LCD
 void atualiza_lcd_temporizado() {
   lcd.setCursor(0, 0);
-  if (contador_verde_a < 10) lcd.print(" ");
+  if (contador_verde_a > 0 && contador_verde_a < 10) lcd.print(" ");
   lcd.print(estado_verdeA ? String(contador_verde_a) : "--");
   lcd.print("|A:");
   lcd.print(fluxo_a);
+  lcd.print(" ");
 
   lcd.setCursor(9, 0);
-  if (contador_verde_b < 10) lcd.print(" ");
+  if (contador_verde_b > 0 && contador_verde_b < 10) lcd.print(" ");
   lcd.print(estado_verdeB ? String(contador_verde_b) : "--");
   lcd.print("|B:");
   lcd.print(fluxo_b);
+  lcd.print(" ");
 
   lcd.setCursor(0, 1);
   if (pedestre_chama) {
@@ -56,15 +62,26 @@ void atualiza_lcd_temporizado() {
 
 // Contadores via interrupção
 void IRAM_ATTR sensorA_ISR() {
-  if (estado_verdeA && tempo_fluxo_a_ativo) fluxo_a += 1;
+  unsigned long agora = millis();
+  if (estado_verdeA && tempo_fluxo_a_ativo && (agora - ultima_interrupt_a > intervalo_debounce)) {
+    fluxo_a++;
+    ultima_interrupt_a = agora;
+  }
 }
 
 void IRAM_ATTR sensorB_ISR() {
-  if (estado_verdeB && tempo_fluxo_b_ativo) fluxo_b +=1;
+  unsigned long agora = millis();
+  if (estado_verdeB && tempo_fluxo_b_ativo && (agora - ultima_interrupt_b > intervalo_debounce)) {
+    fluxo_b++;
+    ultima_interrupt_b = agora;
+  }
 }
 
 void IRAM_ATTR pedestre_ISR() {
-  pedestre_chama = true;
+  if (pedestre_chama == false) {
+    pedestre_chama = true;
+  }
+  else pedestre_chama = false;
 }
 
 // Compara fluxo de A e B para definir tempo de verde
@@ -105,10 +122,12 @@ void pedestre_passando() {
     if (tempo >= 3 && tempo <= 10) {
       lcd.print(animacoes[(10 - tempo) % 4]);
       buzzerBeep(500);
+      delay(500);
     } else if (tempo == 2 || tempo == 1) {
       lcd.print(animacoes[4]);
       buzzerBeep(200);
       buzzerBeep(200);
+      delay(600);
     } else {
       lcd.print(animacoes[5]);
       buzzerBeep(1000);
