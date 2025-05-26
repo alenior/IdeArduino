@@ -31,7 +31,7 @@ UITitle title("FireCylinder Demo");
 UIDescription description("This Fire demo wraps around the cylinder. It uses Perlin noise to create a fire effect.");
 
 
-TimeScale timeScale(0, 1.0f);
+TimeWarp timeScale(0, 1.0f);
 
 UISlider scaleXY("Scale", 8, 1, 100, 1);
 UISlider speedY("SpeedY", 1.3, 1, 6, .1);
@@ -110,7 +110,7 @@ void loop() {
     FastLED.setBrightness(brightness);
     CRGBPalette16 myPal = getPalette();
     uint32_t now = millis();
-    timeScale.setScale(speedY);
+    timeScale.setSpeed(speedY);
     uint32_t y_speed = timeScale.update(now);
     for (int width = 0; width < WIDTH; width++) {
         for (int height = 0; height < HEIGHT; height++) {

@@ -33,7 +33,7 @@ void Frame::draw(CRGB *leds, DrawMode draw_mode) const {
             memcpy(leds, mRgb.get(), mPixelsCount * sizeof(CRGB));
             break;
         }
-        case DRAW_MODE_BLEND_BY_BLACK: {
+        case DRAW_MODE_BLEND_BY_MAX_BRIGHTNESS: {
             for (size_t i = 0; i < mPixelsCount; ++i) {
                 leds[i] = CRGB::blendAlphaMaxChannel(mRgb[i], leds[i]);
             }
@@ -52,11 +52,13 @@ void Frame::drawXY(CRGB *leds, const XYMap &xyMap, DrawMode draw_mode) const {
             uint32_t in_idx = xyMap(w, h);
             uint32_t out_idx = count++;
             if (in_idx >= mPixelsCount) {
-                FASTLED_WARN("Frame::drawXY: in index out of range: " << in_idx);
+                FASTLED_WARN(
+                    "Frame::drawXY: in index out of range: " << in_idx);
                 continue;
             }
             if (out_idx >= mPixelsCount) {
-                FASTLED_WARN("Frame::drawXY: out index out of range: " << out_idx);
+                FASTLED_WARN(
+                    "Frame::drawXY: out index out of range: " << out_idx);
                 continue;
             }
             switch (draw_mode) {
@@ -64,8 +66,9 @@ void Frame::drawXY(CRGB *leds, const XYMap &xyMap, DrawMode draw_mode) const {
                 leds[out_idx] = mRgb[in_idx];
                 break;
             }
-            case DRAW_MODE_BLEND_BY_BLACK: {
-                leds[out_idx] = CRGB::blendAlphaMaxChannel(mRgb[in_idx], leds[in_idx]);
+            case DRAW_MODE_BLEND_BY_MAX_BRIGHTNESS: {
+                leds[out_idx] =
+                    CRGB::blendAlphaMaxChannel(mRgb[in_idx], leds[in_idx]);
                 break;
             }
             }

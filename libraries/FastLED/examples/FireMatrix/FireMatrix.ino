@@ -36,7 +36,7 @@ using namespace fl;
 #define SERPENTINE true
 #define BRIGHTNESS 255
 
-TimeScale timeScale(0, 1.0f);
+TimeWarp timeScale(0, 1.0f);
 
 UISlider scaleXY("Scale", 20, 1, 100, 1);
 UISlider speedY("SpeedY", 1, 1, 6, .1);
@@ -106,7 +106,7 @@ void loop() {
     FastLED.setBrightness(brightness);
     CRGBPalette16 myPal = getPalette();
     uint32_t now = millis();
-    timeScale.setScale(speedY);
+    timeScale.setSpeed(speedY);
     uint32_t y_speed = timeScale.update(now);
     for (int i = 0; i < HEIGHT; i++) {
         for (int j = 0; j < WIDTH; j++) {

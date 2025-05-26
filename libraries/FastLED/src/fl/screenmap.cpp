@@ -9,27 +9,41 @@
 #include "fl/json.h"
 #include "fl/map.h"
 #include "fl/math_macros.h"
+#include "fl/namespace.h"
 #include "fl/screenmap.h"
 #include "fl/str.h"
 #include "fl/vector.h"
 #include "fl/warn.h"
-#include "fl/namespace.h"
 #include <math.h>
 
 namespace fl {
 
 ScreenMap ScreenMap::Circle(int numLeds, float cm_between_leds,
-                            float cm_led_diameter) {
-    ScreenMap screenMap = ScreenMap(numLeds);
+                            float cm_led_diameter, float completion) {
+    ScreenMap screenMap(numLeds);
+
+    // radius from LED spacing
     float circumference = numLeds * cm_between_leds;
     float radius = circumference / (2 * PI);
 
-    for (int i = 0; i < numLeds; i++) {
-        float angle = i * 2 * PI / numLeds;
+    // how big an arc we light vs leave dark
+    float totalAngle = completion * 2 * PI;
+    float gapAngle = 2 * PI - totalAngle;
+
+    // shift so the dark gap is centered at the bottom (–π/2)
+    float startAngle = -PI / 2 + gapAngle / 2.0f;
+
+    // if partial, land last LED exactly at startAngle+totalAngle
+    float divisor =
+        (completion < 1.0f && numLeds > 1) ? (numLeds - 1) : numLeds;
+
+    for (int i = 0; i < numLeds; ++i) {
+        float angle = startAngle + (i * totalAngle) / divisor;
         float x = radius * cos(angle) * 2;
         float y = radius * sin(angle) * 2;
         screenMap[i] = {x, y};
     }
+
     screenMap.setDiameter(cm_led_diameter);
     return screenMap;
 }
@@ -69,7 +83,7 @@ bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
         auto n = x.size();
         ScreenMap segment_map(n, diameter);
         for (uint16_t j = 0; j < n; j++) {
-            segment_map.set(j, pair_xy_float{x[j], y[j]});
+            segment_map.set(j, vec2f{x[j], y[j]});
         }
         segmentMaps->insert(kv.key().c_str(), segment_map);
     }
@@ -105,7 +119,7 @@ bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
     }
     FASTLED_WARN(_err.c_str());
     return false;
-#endif    
+#endif
 }
 
 void ScreenMap::toJson(const FixedMap<Str, ScreenMap, 16> &segmentMaps,
@@ -121,7 +135,7 @@ void ScreenMap::toJson(const FixedMap<Str, ScreenMap, 16> &segmentMaps,
         auto x_array = segment["x"].to<FLArduinoJson::JsonArray>();
         auto y_array = segment["y"].to<FLArduinoJson::JsonArray>();
         for (uint16_t i = 0; i < kv.second.getLength(); i++) {
-            const pair_xy_float &xy = kv.second[i];
+            const vec2f &xy = kv.second[i];
             x_array.add(xy.x);
             y_array.add(xy.y);
         }
@@ -151,17 +165,17 @@ ScreenMap::ScreenMap(uint32_t length, float mDiameter)
     : length(length), mDiameter(mDiameter) {
     mLookUpTable = LUTXYFLOATPtr::New(length);
     LUTXYFLOAT &lut = *mLookUpTable.get();
-    pair_xy_float *data = lut.getData();
+    vec2f *data = lut.getDataMutable();
     for (uint32_t x = 0; x < length; x++) {
         data[x] = {0, 0};
     }
 }
 
-ScreenMap::ScreenMap(const pair_xy_float *lut, uint32_t length, float diameter)
+ScreenMap::ScreenMap(const vec2f *lut, uint32_t length, float diameter)
     : length(length), mDiameter(diameter) {
     mLookUpTable = LUTXYFLOATPtr::New(length);
     LUTXYFLOAT &lut16xy = *mLookUpTable.get();
-    pair_xy_float *data = lut16xy.getData();
+    vec2f *data = lut16xy.getDataMutable();
     for (uint32_t x = 0; x < length; x++) {
         data[x] = lut[x];
     }
@@ -173,22 +187,22 @@ ScreenMap::ScreenMap(const ScreenMap &other) {
     mLookUpTable = other.mLookUpTable;
 }
 
-void ScreenMap::set(uint16_t index, const pair_xy_float &p) {
+void ScreenMap::set(uint16_t index, const vec2f &p) {
     if (mLookUpTable) {
         LUTXYFLOAT &lut = *mLookUpTable.get();
-        auto *data = lut.getData();
+        auto *data = lut.getDataMutable();
         data[index] = p;
     }
 }
 
 void ScreenMap::setDiameter(float diameter) { mDiameter = diameter; }
 
-pair_xy_float ScreenMap::mapToIndex(uint32_t x) const {
+vec2f ScreenMap::mapToIndex(uint32_t x) const {
     if (x >= length || !mLookUpTable) {
         return {0, 0};
     }
     LUTXYFLOAT &lut = *mLookUpTable.get();
-    pair_xy_float screen_coords = lut[x];
+    vec2f screen_coords = lut[x];
     return screen_coords;
 }
 
@@ -196,12 +210,12 @@ uint32_t ScreenMap::getLength() const { return length; }
 
 float ScreenMap::getDiameter() const { return mDiameter; }
 
-const pair_xy_float &ScreenMap::empty() {
-    static const pair_xy_float s_empty = pair_xy_float(0, 0);
+const vec2f &ScreenMap::empty() {
+    static const vec2f s_empty = vec2f(0, 0);
     return s_empty;
 }
 
-const pair_xy_float &ScreenMap::operator[](uint32_t x) const {
+const vec2f &ScreenMap::operator[](uint32_t x) const {
     if (x >= length || !mLookUpTable) {
         return empty(); // better than crashing.
     }
@@ -209,12 +223,12 @@ const pair_xy_float &ScreenMap::operator[](uint32_t x) const {
     return lut[x];
 }
 
-pair_xy_float &ScreenMap::operator[](uint32_t x) {
+vec2f &ScreenMap::operator[](uint32_t x) {
     if (x >= length || !mLookUpTable) {
-        return const_cast<pair_xy_float &>(empty()); // better than crashing.
+        return const_cast<vec2f &>(empty()); // better than crashing.
     }
     LUTXYFLOAT &lut = *mLookUpTable.get();
-    auto *data = lut.getData();
+    auto *data = lut.getDataMutable();
     return data[x];
 }
 
@@ -226,5 +240,17 @@ ScreenMap &ScreenMap::operator=(const ScreenMap &other) {
     }
     return *this;
 }
+
+void ScreenMap::addOffset(const vec2f &p) {
+    vec2f *data = mLookUpTable->getDataMutable();
+    for (uint32_t i = 0; i < length; i++) {
+        vec2f &curr = data[i];
+        curr.x += p.x;
+        curr.y += p.y;
+    }
+}
+
+void ScreenMap::addOffsetX(float x) { addOffset({x, 0}); }
+void ScreenMap::addOffsetY(float y) { addOffset({0, y}); }
 
 } // namespace fl

@@ -148,7 +148,11 @@ void CFastLED::show(uint8_t scale) {
 		pCur = pCur->next();
 	}
 	countFPS();
+	onEndFrame();
 	fl::EngineEvents::onEndShowLeds();
+}
+
+void CFastLED::onEndFrame() {
 	fl::EngineEvents::onEndFrame();
 }
 
@@ -214,6 +218,7 @@ void CFastLED::showColor(const struct CRGB & color, uint8_t scale) {
 		pCur = pCur->next();
 	}
 	countFPS();
+	onEndFrame();
 }
 
 void CFastLED::clear(bool writeData) {
