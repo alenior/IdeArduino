@@ -40,7 +40,7 @@ void atualiza_lcd_temporizado() {
   lcd.print(fluxo_a);
 
   lcd.setCursor(9, 0);
-  if(contador_verde_a < 10) lcd.print(" ");
+  if(contador_verde_b < 10) lcd.print(" ");
   lcd.print(estado_verdeB ? String(contador_verde_b) : "--");
   lcd.print("|B:");
   lcd.print(fluxo_b);
@@ -86,7 +86,7 @@ void pedestre_passando() {
   // Sinais fechados
   digitalWrite(vermelhoA, HIGH);
   digitalWrite(vermelhoB, HIGH);
-  digitalWrite(vermelhoPedestre, HIGH);
+  digitalWrite(vermelhoPedestre, LOW);
   digitalWrite(verdePedestre, HIGH);
 
   lcd.clear();
