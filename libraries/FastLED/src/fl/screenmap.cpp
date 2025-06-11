@@ -8,13 +8,13 @@
 
 #include "fl/json.h"
 #include "fl/map.h"
+#include "fl/math.h"
 #include "fl/math_macros.h"
 #include "fl/namespace.h"
 #include "fl/screenmap.h"
 #include "fl/str.h"
 #include "fl/vector.h"
 #include "fl/warn.h"
-#include <math.h>
 
 namespace fl {
 
@@ -128,25 +128,32 @@ void ScreenMap::toJson(const FixedMap<Str, ScreenMap, 16> &segmentMaps,
 #if !FASTLED_ENABLE_JSON
     return;
 #else
+    if (!_doc) {
+        FASTLED_WARN("ScreenMap::toJson called with nullptr _doc");
+        return;
+    }
     auto &doc = *_doc;
     auto map = doc["map"].to<FLArduinoJson::JsonObject>();
-    for (auto kv : segmentMaps) {
-        auto segment = map[kv.first].to<FLArduinoJson::JsonObject>();
-        auto x_array = segment["x"].to<FLArduinoJson::JsonArray>();
-        auto y_array = segment["y"].to<FLArduinoJson::JsonArray>();
-        for (uint16_t i = 0; i < kv.second.getLength(); i++) {
-            const vec2f &xy = kv.second[i];
-            x_array.add(xy.x);
-            y_array.add(xy.y);
-        }
-        float diameter = kv.second.getDiameter();
-        if (diameter < 0.0f) {
-            diameter = .5f; // 5mm.
-        }
-        if (diameter > 0.0f) {
-            segment["diameter"] = diameter;
+    if (!segmentMaps.empty()) {
+        for (auto kv : segmentMaps) {
+            auto segment = map[kv.first].to<FLArduinoJson::JsonObject>();
+            auto x_array = segment["x"].to<FLArduinoJson::JsonArray>();
+            auto y_array = segment["y"].to<FLArduinoJson::JsonArray>();
+            for (uint16_t i = 0; i < kv.second.getLength(); i++) {
+                const vec2f &xy = kv.second[i];
+                x_array.add(xy.x);
+                y_array.add(xy.y);
+            }
+            float diameter = kv.second.getDiameter();
+            if (diameter < 0.0f) {
+                diameter = .5f; // 5mm.
+            }
+            if (diameter > 0.0f) {
+                segment["diameter"] = diameter;
+            }
         }
     }
+
 #endif
 }
 
@@ -209,6 +216,35 @@ vec2f ScreenMap::mapToIndex(uint32_t x) const {
 uint32_t ScreenMap::getLength() const { return length; }
 
 float ScreenMap::getDiameter() const { return mDiameter; }
+
+vec2f ScreenMap::getBounds() const {
+
+    if (length == 0 || !mLookUpTable) {
+        return {0, 0};
+    }
+
+    LUTXYFLOAT &lut = *mLookUpTable.get();
+
+    fl::vec2f *data = lut.getDataMutable();
+    // float minX = lut[0].x;
+    // float maxX = lut[0].x;
+    // float minY = lut[0].y;
+    // float maxY = lut[0].y;
+    float minX = data[0].x;
+    float maxX = data[0].x;
+    float minY = data[0].y;
+    float maxY = data[0].y;
+
+    for (uint32_t i = 1; i < length; i++) {
+        const vec2f &p = lut[i];
+        minX = MIN(minX, p.x);
+        maxX = MAX(maxX, p.x);
+        minY = MIN(minY, p.y);
+        maxY = MAX(maxY, p.y);
+    }
+
+    return {maxX - minX, maxY - minY};
+}
 
 const vec2f &ScreenMap::empty() {
     static const vec2f s_empty = vec2f(0, 0);

@@ -30,15 +30,15 @@ void DefaultFree(void *ptr) { free(ptr); }
 #endif
 
 void *(*Alloc)(size_t) = DefaultAlloc;
-void (*Free)(void *) = DefaultFree;
+void (*Dealloc)(void *) = DefaultFree;
 } // namespace
 
-void SetLargeBlockAllocator(void *(*alloc)(size_t), void (*free)(void *)) {
+void SetPSRamAllocator(void *(*alloc)(size_t), void (*free)(void *)) {
     Alloc = alloc;
-    Free = free;
+    Dealloc = free;
 }
 
-void *LargeBlockAllocate(size_t size, bool zero) {
+void *PSRamAllocate(size_t size, bool zero) {
     void *ptr = Alloc(size);
     if (zero) {
         memset(ptr, 0, size);
@@ -46,6 +46,23 @@ void *LargeBlockAllocate(size_t size, bool zero) {
     return ptr;
 }
 
-void LargeBlockDeallocate(void *ptr) { Free(ptr); }
+void PSRamDeallocate(void *ptr) { Dealloc(ptr); }
+
+void Malloc(size_t size) {
+    void *ptr = Alloc(size);
+    if (ptr == nullptr) {
+        // Handle allocation failure, e.g., log an error or throw an exception.
+        // For now, we just return without doing anything.
+        return;
+    }
+    memset(ptr, 0, size); // Zero-initialize the memory
+
+}
+void Free(void *ptr) {
+    if (ptr == nullptr) {
+        return; // Handle null pointer
+    }
+    Dealloc(ptr); // Free the allocated memory
+}
 
 } // namespace fl

@@ -59,11 +59,7 @@ struct FFT_Args {
         this->sample_rate = sample_rate;
     }
 
-    bool operator==(const FFT_Args &other) const {
-        return samples == other.samples && bands == other.bands &&
-               fmin == other.fmin && fmax == other.fmax &&
-               sample_rate == other.sample_rate;
-    }
+    bool operator==(const FFT_Args &other) const ;
     bool operator!=(const FFT_Args &other) const { return !(*this == other); }
 };
 
@@ -85,10 +81,7 @@ class FFT {
   private:
     // Get the FFTImpl for the given arguments.
     FFTImpl &get_or_create(const FFT_Args &args);
-
-    // using HashMap = fl::HashMapLru<FFT_Args, Ptr<FFTImpl>>;
     struct HashMap;
-    // HashMap mMap = HashMap(8);
     scoped_ptr<HashMap> mMap;
 };
 

@@ -24,13 +24,22 @@ void UISlider::Listener::onBeginFrame() {
     }
     float value = owner.value();
     if (value != owner.mLastFrameValue) {
-        owner.mCallbacks.invoke(*mOwner, value);
+        owner.mCallbacks.invoke(*mOwner);
         owner.mLastFrameValue = value;
     }
 }
 
 void UIButton::Listener::onBeginFrame() {
-    const bool clicked_this_frame = mOwner->clicked();
+    bool clicked_this_frame = mOwner->clicked();
+    
+    // Check the real button if one is attached
+    if (mOwner->mRealButton) {
+        if (mOwner->mRealButton->isPressed()) {
+            clicked_this_frame = true;
+            //mOwner->click(); // Update the UI button state
+        }
+    }
+    
     const bool clicked_changed = (clicked_this_frame != mClickedLastFrame);
     mClickedLastFrame = clicked_this_frame;
     if (clicked_changed) {
@@ -50,7 +59,7 @@ void UICheckbox::Listener::onBeginFrame() {
     }
     bool value = owner.value();
     if (value != owner.mLastFrameValue) {
-        owner.mCallbacks.invoke(owner, value);
+        owner.mCallbacks.invoke(owner);
         owner.mLastFrameValue = value;
     }
 }
@@ -64,7 +73,7 @@ void UINumberField::Listener::onBeginFrame() {
     }
     double value = owner.value();
     if (value != owner.mLastFrameValue) {
-        owner.mCallbacks.invoke(owner, value);
+        owner.mCallbacks.invoke(owner);
         owner.mLastFrameValue = value;
     }
 }

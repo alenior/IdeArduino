@@ -12,6 +12,7 @@
 #include "fl/ui_impl.h"
 #include "fl/unused.h"
 #include "platforms/ui_defs.h"
+#include "sensors/button.h"
 
 #define FL_NO_COPY(CLASS)                                                      \
     CLASS(const CLASS &) = delete;                                             \
@@ -59,18 +60,9 @@ class UISlider : public UISliderImpl {
         return *this;
     }
 
-    int onChanged(function<void(float)> callback) {
-        function<void(UISlider &, float)> wrapped_cb =
-            [callback](UISlider &slider, float value) {
-                FASTLED_UNUSED(slider);
-                callback(value);
-            };
-        int out = mCallbacks.add(wrapped_cb);
-        mListener.addToEngineEventsOnce();
-        return out;
-    }
 
-    int onChangedEx(function<void(UISlider &, float)> callback) {
+
+    int onChanged(function<void(UISlider &)> callback) {
         int out = mCallbacks.add(callback);
         mListener.addToEngineEventsOnce();
         return out;
@@ -102,7 +94,7 @@ class UISlider : public UISliderImpl {
     };
 
   private:
-    FunctionList<UISlider &, float> mCallbacks;
+    FunctionList<UISlider &> mCallbacks;
     float mLastFrameValue = 0;
     bool mLastFramevalueValid = false;
     Listener mListener;
@@ -116,25 +108,47 @@ class UIButton : public UIButtonImpl {
     using Super = UIButtonImpl;
     UIButton(const char *name) : UIButtonImpl(name), mListener(this) {}
     ~UIButton() {}
-    bool isPressed() const { return Super::isPressed(); }
-    bool clicked() const { return Super::clicked(); }
+    bool isPressed() const {
+        if (Super::isPressed()) {
+            return true;
+        }
+        // If we have a real button, check if it's pressed
+        if (mRealButton) {
+            return mRealButton->isPressed();
+        }
+        // Otherwise, return the default state
+        return false;
+    }
+    bool clicked() const {
+        if (Super::clicked()) {
+            return true;
+        }
+        if (mRealButton) {
+            // If we have a real button, check if it was clicked
+            return mRealButton->isPressed();
+        }
+        return false;
+    }
     int clickedCount() const { return Super::clickedCount(); }
     operator bool() const { return clicked(); }
 
-    void click() { Super::click(); }
+    void addRealButton(const Button& pin) {
+        mRealButton.reset(new Button(pin));
+    }
 
-    int onChanged(function<void()> callback) {
-        function<void(UIButton &)> wrapped_cb = [callback](UIButton &button) {
-            FASTLED_UNUSED(button);
-            callback();
-        };
-        int id = mCallbacks.add(wrapped_cb);
+    void click() { Super::click(); }
+    int onChanged(function<void(UIButton &)> callback) {
+        int id = mCallbacks.add(callback);
         mListener.addToEngineEventsOnce();
         return id;
     }
 
-    int onChangedEx(function<void(UIButton &)> callback) {
-        int id = mCallbacks.add(callback);
+    int onClicked(function<void()> callback) {
+        int id = mCallbacks.add([callback](UIButton &btn) {
+            if (btn.clicked()) {
+                callback();
+            }
+        });
         mListener.addToEngineEventsOnce();
         return id;
     }
@@ -170,6 +184,7 @@ class UIButton : public UIButtonImpl {
   private:
     FunctionList<UIButton &> mCallbacks;
     Listener mListener;
+    fl::scoped_ptr<Button> mRealButton;
 };
 
 class UICheckbox : public UICheckboxImpl {
@@ -187,17 +202,8 @@ class UICheckbox : public UICheckboxImpl {
         return *this;
     }
 
-    void onChanged(function<void(bool)> callback) {
-        function<void(UICheckbox &, bool)> wrapped_cb =
-            [callback](UICheckbox &checkbox, bool value) {
-                FASTLED_UNUSED(checkbox);
-                callback(value);
-            };
-        mCallbacks.add(wrapped_cb);
-        mListener.addToEngineEventsOnce();
-    }
 
-    void onChangedEx(function<void(UICheckbox &, bool)> callback) {
+    void onChanged(function<void(UICheckbox &)> callback) {
         mCallbacks.add(callback);
         mListener.addToEngineEventsOnce();
     }
@@ -229,7 +235,7 @@ class UICheckbox : public UICheckboxImpl {
 
   private:
     Super &impl() { return *this; }
-    FunctionList<UICheckbox &, bool> mCallbacks;
+    FunctionList<UICheckbox &> mCallbacks;
     bool mLastFrameValue = false;
     bool mLastFrameValueValid = false;
     Listener mListener;
@@ -256,17 +262,9 @@ class UINumberField : public UINumberFieldImpl {
         return *this;
     }
 
-    void onChanged(function<void(double)> callback) {
-        function<void(UINumberField &, double)> wrapped_cb =
-            [callback](UINumberField &checkbox, bool value) {
-                FASTLED_UNUSED(checkbox);
-                callback(value);
-            };
-        mCallbacks.add(wrapped_cb);
-        mListener.addToEngineEventsOnce();
-    }
 
-    void onChangedEx(function<void(UINumberField &, double)> callback) {
+
+    void onChanged(function<void(UINumberField &)> callback) {
         mCallbacks.add(callback);
         mListener.addToEngineEventsOnce();
     }
@@ -299,7 +297,7 @@ class UINumberField : public UINumberFieldImpl {
     Listener mListener;
     double mLastFrameValue = 0;
     bool mLastFrameValueValid = false;
-    FunctionList<UINumberField &, double> mCallbacks;
+    FunctionList<UINumberField &> mCallbacks;
 
     Super &impl() { return *this; }
 };

@@ -86,16 +86,7 @@ Adafruit_NeoPixel::Adafruit_NeoPixel(uint16_t n, int16_t p, neoPixelType t)
   updateType(t);
   updateLength(n);
   setPin(p);
-#if defined(ARDUINO_ARCH_RP2040)
-  // Find a free SM on one of the PIO's
-  sm = pio_claim_unused_sm(pio, false); // don't panic
-  // Try pio1 if SM not found
-  if (sm < 0) {
-    pio = pio1;
-    sm = pio_claim_unused_sm(pio, true); // panic if no SM is free
-  }
-  init = true;
-#endif
+
 #if defined(ESP32)
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   espInit();
@@ -133,6 +124,13 @@ Adafruit_NeoPixel::~Adafruit_NeoPixel() {
   numLEDs = numBytes = 0;
   show();
 #endif
+
+
+#if defined(ARDUINO_ARCH_RP2040)
+  // Release any PIO
+  rp2040releasePIO();
+#endif
+
   free(pixels);
   if (pin >= 0)
     pinMode(pin, INPUT);
@@ -140,13 +138,29 @@ Adafruit_NeoPixel::~Adafruit_NeoPixel() {
 
 /*!
   @brief   Configure NeoPixel pin for output.
+  @returns False if we weren't able to claim resources required
 */
-void Adafruit_NeoPixel::begin(void) {
+bool Adafruit_NeoPixel::begin(void) {
   if (pin >= 0) {
     pinMode(pin, OUTPUT);
     digitalWrite(pin, LOW);
+  } else {
+    begun = false;
+    return false;
   }
+
+#if defined(ARDUINO_ARCH_RP2040)
+  // if we're calling begin() again, unclaim any existing PIO resc.
+  rp2040releasePIO();
+  if (! rp2040claimPIO()) {
+    begun = false;
+    return false;
+  }
+  
+#endif
+
   begun = true;
+  return true;
 }
 
 /*!
@@ -209,38 +223,8 @@ void Adafruit_NeoPixel::updateType(neoPixelType t) {
   }
 }
 
-// RP2040 specific driver
-#if defined(ARDUINO_ARCH_RP2040)
-void Adafruit_NeoPixel::rp2040Init(uint8_t pin, bool is800KHz)
-{
-  uint offset = pio_add_program(pio, &ws2812_program);
 
-  if (is800KHz)
-  {
-    // 800kHz, 8 bit transfers
-    ws2812_program_init(pio, sm, offset, pin, 800000, 8);
-  }
-  else
-  {
-    // 400kHz, 8 bit transfers
-    ws2812_program_init(pio, sm, offset, pin, 400000, 8);
-  }
-}
-// Not a user API
-void  Adafruit_NeoPixel::rp2040Show(uint8_t pin, uint8_t *pixels, uint32_t numBytes, bool is800KHz)
-{
-  if (this->init)
-  {
-    // On first pass through initialise the PIO
-    rp2040Init(pin, is800KHz);
-    this->init = false;
-  }
-
-  while(numBytes--)
-    // Bits for transmission must be shifted to top 8 bits
-    pio_sm_put_blocking(pio, sm, ((uint32_t)*pixels++)<< 24);
-}
-#elif defined(ARDUINO_ARCH_CH32)
+#if defined(ARDUINO_ARCH_CH32)
 
 // F_CPU is defined to SystemCoreClock (not constant number)
 #if SYSCLK_FREQ_144MHz_HSE == 144000000 || SYSCLK_FREQ_HSE == 144000000 || \
@@ -1908,7 +1892,7 @@ void Adafruit_NeoPixel::show(void) {
 
 #elif defined(ARDUINO_ARCH_RP2040)
   // Use PIO
-  rp2040Show(pin, pixels, numBytes, is800KHz);
+  rp2040Show(pixels, numBytes);
 
 #elif defined(TEENSYDUINO) &&                                                  \
     defined(KINETISK) // Teensy 3.0, 3.1, 3.2, 3.5, 3.6
@@ -2568,7 +2552,7 @@ void Adafruit_NeoPixel::show(void) {
 #endif
 
 //----
-#elif defined(XMC1100_XMC2GO) || defined(XMC1100_H_BRIDGE2GO) || defined(XMC1100_Boot_Kit)  || defined(XMC1300_Boot_Kit)
+#elif defined(XMC1100_XMC2GO) || defined(XMC1400_Arduino_Kit) || defined(XMC1100_H_BRIDGE2GO) || defined(XMC1100_Boot_Kit)  || defined(XMC1300_Boot_Kit)
 
   // XMC1100/1200/1300 with ARM Cortex M0 are running with 32MHz, XMC1400 runs with 48MHz so may not work
   // Tried this with a timer/counter, couldn't quite get adequate
@@ -2988,7 +2972,8 @@ if(is800KHz) {
   unsigned int bitmask = (1 << g_ADigitalPinMap[pin]);
   // https://github.com/sandeepmistry/arduino-nRF5/blob/dc53980c8bac27898fca90d8ecb268e11111edc1/variants/BBCmicrobit/variant.cpp
 
-  volatile unsigned int *reg = (unsigned int *)(0x50000000UL + 0x508);
+  //volatile unsigned int *reg = (unsigned int *)(0x50000000UL + 0x508);
+  volatile uint32_t *reg = (uint32_t *)(NRF_GPIO_BASE + offsetof(NRF_GPIO_Type, OUTSET));
 
   // https://github.com/sandeepmistry/arduino-nRF5/blob/dc53980c8bac27898fca90d8ecb268e11111edc1/cores/nRF5/SDK/components/device/nrf51.h
   // http://www.iot-programmer.com/index.php/books/27-micro-bit-iot-in-c/chapters-micro-bit-iot-in-c/47-micro-bit-iot-in-c-fast-memory-mapped-gpio?showall=1
@@ -3004,7 +2989,7 @@ if(is800KHz) {
       "L%=_nextbit:"
       "\n\t" //;            C0
       //    str r1, [r3, #0]    ; pin := hi  C2
-      "strb %[bitmask], [%[reg], #0]"
+      "str %[bitmask], [%[reg], #0]"
       "\n\t" //; pin := hi  C2
       //    tst r6, r0          ;            C3
       "tst %[mask], %[pix]"
@@ -3013,7 +2998,7 @@ if(is800KHz) {
       "bne L%=_islate"
       "\n\t" //;            C4
       //    str r1, [r2, #0]    ; pin := lo  C6
-      "strb %[bitmask], [%[reg], #4]"
+      "str %[bitmask], [%[reg], #4]"
       "\n\t" //; pin := lo  C6
       // .islate:
       "L%=_islate:"
@@ -3048,7 +3033,7 @@ if(is800KHz) {
       "L%=_common:"
       "\n\t" //;            C13
       //    str r1, [r2, #0]   ; pin := lo   C15
-      "strb %[bitmask], [%[reg], #4]"
+      "str %[bitmask], [%[reg], #4]"
       "\n\t" //; pin := lo  C15
       //    ; always re-load byte - it just fits with the cycles better this way
       //    ldrb r0, [r4, #0]  ; r0 := *r4   C17
@@ -3070,7 +3055,7 @@ if(is800KHz) {
       "L%=_stop:"
       "\n\t"
       //    str r1, [r2, #0]   ; pin := lo
-      "strb %[bitmask], [%[reg], #4]"
+      "str %[bitmask], [%[reg], #4]"
       "\n\t" //; pin := lo
       //    cpsie i            ; enable irq
 
@@ -3381,8 +3366,7 @@ if(is800KHz) {
 #elif defined(ARDUINO_ARCH_CH32)
   ch32Show(gpioPort, gpioPin, pixels, numBytes, is800KHz);
 #elif defined(ARDUINO_ARCH_RP2040) && defined(__riscv)
-  // Use PIO
-  rp2040Show(pin, pixels, numBytes, is800KHz);
+  rp2040Show(pixels, numBytes);  // Use PIO
 #else
 #error Architecture not supported
 #endif

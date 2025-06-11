@@ -70,6 +70,7 @@ struct WaveFxArgs {
     bool auto_updates = true;
     float speed = 0.16f;
     float dampening = 6.0f;
+    bool x_cyclical = false;
     WaveCrgbMapPtr crgbMap;
 };
 
@@ -90,7 +91,10 @@ class WaveFx : public Fx2d {
             mCrgbMap = args.crgbMap;
         }
         setAutoUpdate(args.auto_updates);
+        setXCylindrical(args.x_cyclical);
     }
+
+    void setXCylindrical(bool on) { mWaveSim.setXCylindrical(on); }
 
     void setSpeed(float speed) {
         // Set the speed of the wave simulation.

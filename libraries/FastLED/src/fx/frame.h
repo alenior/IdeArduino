@@ -6,6 +6,7 @@
 #include "fl/namespace.h"
 #include "fl/ptr.h"
 #include "fl/xymap.h"
+#include "fl/vector.h"
 
 #include "fl/allocator.h"
 #include "fl/draw_mode.h"
@@ -22,12 +23,12 @@ class Frame : public fl::Referent {
   public:
     // Frames take up a lot of memory. On some devices like ESP32 there is
     // PSRAM available. You should see allocator.h ->
-    // SetLargeBlockAllocator(...) on setting a custom allocator for these large
+    // SetPSRamAllocator(...) on setting a custom allocator for these large
     // blocks.
     explicit Frame(int pixels_per_frame);
     ~Frame() override;
-    CRGB *rgb() { return mRgb.get(); }
-    const CRGB *rgb() const { return mRgb.get(); }
+    CRGB *rgb() { return mRgb.data(); }
+    const CRGB *rgb() const { return mRgb.data(); }
     size_t size() const { return mPixelsCount; }
     void copy(const Frame &other);
     void interpolate(const Frame &frame1, const Frame &frame2,
@@ -41,11 +42,11 @@ class Frame : public fl::Referent {
 
   private:
     const size_t mPixelsCount;
-    fl::scoped_array<CRGB> mRgb;
+    fl::vector<CRGB, fl::allocator_psram<CRGB>> mRgb;
 };
 
 inline void Frame::copy(const Frame &other) {
-    memcpy(mRgb.get(), other.mRgb.get(), other.mPixelsCount * sizeof(CRGB));
+    memcpy(mRgb.data(), other.mRgb.data(), other.mPixelsCount * sizeof(CRGB));
 }
 
 } // namespace fl
