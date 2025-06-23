@@ -75,7 +75,11 @@ For more examples, see this [link](examples). Web compiled [examples](https://za
 
 Video:
 
-https://github.com/user-attachments/assets/9155124b-a93e-4317-b272-8bacc1b9c3a8
+
+
+https://github.com/user-attachments/assets/ff8e0432-3e0d-47cc-a444-82ce27f562af
+
+
 
 #### Major release for tech-artists!
 
@@ -247,6 +251,10 @@ Update: max overclock has been reported at +70%: https://www.reddit.com/r/FastLE
 
 
 [![esp32h2](https://github.com/FastLED/FastLED/actions/workflows/build_esp32h2.yml/badge.svg)](https://github.com/FastLED/FastLED/actions/workflows/build_esp32h2.yml)
+
+
+[![esp32p4](https://github.com/FastLED/FastLED/actions/workflows/build_esp32p4.yml/badge.svg)](https://github.com/FastLED/FastLED/actions/workflows/build_esp32p4.yml)
+
 
 *Specific features*
 

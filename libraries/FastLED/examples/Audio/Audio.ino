@@ -2,11 +2,22 @@
 
 /*
 This demo is best viewed using the FastLED compiler.
+
+Windows/MacOS binaries: https://github.com/FastLED/FastLED/releases
+
+Python
+
 Install: pip install fastled
 Run: fastled <this sketch directory>
 This will compile and preview the sketch in the browser, and enable
 all the UI elements you see below.
 */
+
+#if !SKETCH_HAS_LOTS_OF_MEMORY
+// Platform does not have enough memory
+void setup() {}
+void loop() {}
+#else
 
 #include <Arduino.h>
 #include <FastLED.h>
@@ -232,3 +243,5 @@ void loop() {
 
     FastLED.show();
 }
+
+#endif  // __AVR__
