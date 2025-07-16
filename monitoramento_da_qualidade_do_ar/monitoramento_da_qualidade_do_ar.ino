@@ -1,16 +1,14 @@
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
 #include <HardwareSerial.h>
-#include <TinyGPSPlus.h>  // GPS
+#include <TinyGPSPlus.h>
 
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 
-// ======== SUA REDE Wi-Fi =========
-#define WIFI_SSID "Alencar's Galaxy M14 5G"
+#define WIFI_SSID "GCNET-Alencar" //"Alencar's Galaxy M14 5G"
 #define WIFI_PASSWORD "11223344"
 
-// ======== DADOS DO FIREBASE =========
 #define API_KEY "AIzaSyAMcS7V5q3MDkWkZ4pVCXVNkodZQpfdjKM"
 #define DATABASE_URL "https://monitoramento--qualidade-do-ar-default-rtdb.firebaseio.com/"
 #define USER_EMAIL "esp32@teste.com"
@@ -26,13 +24,14 @@ TinyGPSPlus gps;
 
 uint8_t buf[32];
 
+String twoDigits(int number) {
+  return number < 10 ? "0" + String(number) : String(number);
+}
+
 void setup() {
   Serial.begin(115200);
-
-  // Inicializa os sensores
-  pmsSerial.begin(9600, SERIAL_8N1, 16, 17);  // PMS7003
-  gpsSerial.begin(9600, SERIAL_8N1, 4, -1);   // GPS NEO-6M
-
+  pmsSerial.begin(9600, SERIAL_8N1, 16, 17);
+  gpsSerial.begin(9600, SERIAL_8N1, 4, -1);
   Serial.println("Inicializando sensores...");
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -53,25 +52,17 @@ void setup() {
 }
 
 void loop() {
-  // Leitura do GPS (loop de parsing)
   while (gpsSerial.available() > 0) {
     gps.encode(gpsSerial.read());
   }
 
-  // Leitura do PMS7003
   if (pmsSerial.available() >= 32 && pmsSerial.read() == 0x42 && pmsSerial.read() == 0x4D) {
     buf[0] = 0x42;
     buf[1] = 0x4D;
-
-    for (int i = 2; i < 32; i++) {
-      buf[i] = pmsSerial.read();
-    }
+    for (int i = 2; i < 32; i++) buf[i] = pmsSerial.read();
 
     uint16_t checksum = 0;
-    for (int i = 0; i < 30; i++) {
-      checksum += buf[i];
-    }
-
+    for (int i = 0; i < 30; i++) checksum += buf[i];
     uint16_t received_checksum = (buf[30] << 8) | buf[31];
 
     if (checksum == received_checksum) {
@@ -79,35 +70,36 @@ void loop() {
       int pm2_5 = (buf[12] << 8) | buf[13];
       int pm10  = (buf[14] << 8) | buf[15];
 
-      Serial.printf("PM1.0: %d, PM2.5: %d, PM10: %d\n", pm1_0, pm2_5, pm10);
+      double latitude = gps.location.isValid() ? gps.location.lat() : 0.0;
+      double longitude = gps.location.isValid() ? gps.location.lng() : 0.0;
+      double altitude = gps.altitude.isValid() ? gps.altitude.meters() : 0.0;
 
-      // Somente envia se os dados de localização forem válidos
-      if (gps.location.isValid() && gps.altitude.isValid() && gps.date.isValid() && gps.time.isValid()) {
-        double latitude = gps.location.lat();
-        double longitude = gps.location.lng();
-        double altitude = gps.altitude.meters();
-        String datetime = String(gps.date.year()) + "-" + gps.date.month() + "-" + gps.date.day() + "T" +
-                          gps.time.hour() + ":" + gps.time.minute() + ":" + gps.time.second() + "Z";
-
-        Serial.printf("Latitude: %.6f, Longitude: %.6f, Altitude: %.2f m\n", latitude, longitude, altitude);
-        Serial.println("UTC: " + datetime);
-
-        // Enviar dados ao Firebase
-        String basePath = "/leituras";
-        Firebase.RTDB.setInt(&fbdo, basePath + "/pm1_0", pm1_0);
-        Firebase.RTDB.setInt(&fbdo, basePath + "/pm2_5", pm2_5);
-        Firebase.RTDB.setInt(&fbdo, basePath + "/pm10", pm10);
-        Firebase.RTDB.setDouble(&fbdo, basePath + "/latitude", latitude);
-        Firebase.RTDB.setDouble(&fbdo, basePath + "/longitude", longitude);
-        Firebase.RTDB.setDouble(&fbdo, basePath + "/altitude", altitude);
-        Firebase.RTDB.setString(&fbdo, basePath + "/datetime_utc", datetime);
-      } else {
-        Serial.println("Aguardando fix do GPS...");
+      String datetime = "0000-00-00T00:00:00Z";
+      if (gps.date.isValid() && gps.time.isValid()) {
+        datetime = String(gps.date.year()) + "-" +
+                   twoDigits(gps.date.month()) + "-" +
+                   twoDigits(gps.date.day()) + "T" +
+                   twoDigits(gps.time.hour()) + ":" +
+                   twoDigits(gps.time.minute()) + ":" +
+                   twoDigits(gps.time.second()) + "Z";
       }
+
+      Serial.printf("PM1.0: %d, PM2.5: %d, PM10: %d\n", pm1_0, pm2_5, pm10);
+      Serial.printf("Latitude: %.6f, Longitude: %.6f, Altitude: %.2f m\n", latitude, longitude, altitude);
+      Serial.println("UTC: " + datetime);
+
+      String basePath = "/leituras";
+      Firebase.RTDB.setInt(&fbdo, basePath + "/pm1_0", pm1_0);
+      Firebase.RTDB.setInt(&fbdo, basePath + "/pm2_5", pm2_5);
+      Firebase.RTDB.setInt(&fbdo, basePath + "/pm10", pm10);
+      Firebase.RTDB.setDouble(&fbdo, basePath + "/latitude", latitude);
+      Firebase.RTDB.setDouble(&fbdo, basePath + "/longitude", longitude);
+      Firebase.RTDB.setDouble(&fbdo, basePath + "/altitude", altitude);
+      Firebase.RTDB.setString(&fbdo, basePath + "/datetime_utc", datetime);
+
     } else {
       Serial.println("Checksum inválido no PMS7003.");
     }
   }
-
-  delay(3000);  // Aguarda entre medições
+  delay(3000);
 }
