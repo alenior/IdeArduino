@@ -28,6 +28,26 @@ String twoDigits(int number) {
   return number < 10 ? "0" + String(number) : String(number);
 }
 
+String classificarQualidadeComposta(int pm1_0, int pm2_5, int pm10) {
+  int score = 0;
+
+  // PM1.0
+  if (pm1_0 > 0) score++;
+  if (pm1_0 > 10) score++;
+
+  // PM2.5
+  if (pm2_5 > 15) score++;
+  if (pm2_5 > 50) score++;
+
+  // PM10
+  if (pm10 > 50) score++;
+  if (pm10 > 100) score++;
+
+  if (score <= 1) return "Bom";
+  if (score <= 3) return "Moderado";
+  return "Ruim";
+}
+
 void setup() {
   Serial.begin(115200);
   pmsSerial.begin(9600, SERIAL_8N1, 16, 17);
@@ -84,11 +104,16 @@ void loop() {
                    twoDigits(gps.time.second()) + "Z";
       }
 
+      String qualidade = classificarQualidadeComposta(pm1_0, pm2_5, pm10);
+
       Serial.printf("PM1.0: %d, PM2.5: %d, PM10: %d\n", pm1_0, pm2_5, pm10);
       Serial.printf("Latitude: %.6f, Longitude: %.6f, Altitude: %.2f m\n", latitude, longitude, altitude);
       Serial.println("UTC: " + datetime);
+      Serial.println("Qualidade do Ar: " + qualidade);
 
-      String basePath = "/leituras";
+      String timestampKey = String(millis());  // ou use datetime se for único
+      String basePath = "/historico/" + timestampKey;
+      // String basePath = "/leituras";
       Firebase.RTDB.setInt(&fbdo, basePath + "/pm1_0", pm1_0);
       Firebase.RTDB.setInt(&fbdo, basePath + "/pm2_5", pm2_5);
       Firebase.RTDB.setInt(&fbdo, basePath + "/pm10", pm10);
@@ -96,10 +121,11 @@ void loop() {
       Firebase.RTDB.setDouble(&fbdo, basePath + "/longitude", longitude);
       Firebase.RTDB.setDouble(&fbdo, basePath + "/altitude", altitude);
       Firebase.RTDB.setString(&fbdo, basePath + "/datetime_utc", datetime);
+      Firebase.RTDB.setString(&fbdo, basePath + "/qualidade", qualidade);
 
     } else {
       Serial.println("Checksum inválido no PMS7003.");
     }
   }
-  delay(3000);
+  delay(5000);
 }
