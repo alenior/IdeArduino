@@ -19,7 +19,7 @@
 // =========================
 // Configurações de Wi-Fi
 // =========================
-const char* WIFI_SSID = "GCNET-Alencar";
+const char* WIFI_SSID = "Alencar's Galaxy M14 5G"; //"GCNET-Alencar";
 const char* WIFI_PASSWORD = "11223344";
 
 // =========================
