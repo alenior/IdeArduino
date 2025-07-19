@@ -19,7 +19,7 @@
 // =========================
 // Configurações de Wi-Fi
 // =========================
-const char* WIFI_SSID = "Alencar's Galaxy M14 5G"; //"GCNET-Alencar";
+const char* WIFI_SSID = "GCNET-Alencar"; // "Alencar's Galaxy M14 5G";
 const char* WIFI_PASSWORD = "11223344";
 
 // =========================
@@ -208,5 +208,5 @@ void loop() {
     Serial.println("Falha na leitura do PMS7003 após múltiplas tentativas.");
   }
 
-  delay(60000);  // Espera 1 minuto antes da próxima leitura
+  delay(600000);  // Espera 10 minutos antes da próxima leitura
 }
