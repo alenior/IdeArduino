@@ -6,7 +6,4 @@ void setup() {
 
 void loop() {
   digitalWrite(ledPin, HIGH);  // liga o LED
-  delay(1000);                 // espera 1 segundo
-  digitalWrite(ledPin, LOW);   // desliga o LED
-  delay(1000);                 // espera 1 segundo
 }
