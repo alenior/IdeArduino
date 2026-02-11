@@ -1,12 +1,9 @@
 #pragma once
 
-#include <stdint.h>
-#include <string.h>
-
 #include "crgb.h"
 #include "fl/map.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/ui.h"
 #include "fl/xymap.h"
 #include "fx/detail/fx_compositor.h"
@@ -14,9 +11,9 @@
 #include "fx/fx.h"
 #include "fx/time.h"
 #include "fx/video.h"
+#include "fl/stdint.h"
 
-// Forward declaration
-class TimeFunction;
+// TimeFunction is defined in fx/time.h (fl::TimeFunction)
 
 #ifndef FASTLED_FX_ENGINE_MAX_FX
 #define FASTLED_FX_ENGINE_MAX_FX 64
@@ -63,7 +60,7 @@ class FxEngine {
      *        object has been deleted. But if it's a static object that's
      *        then the object probably wasn't going to be deleted anyway.
      */
-    int addFx(Fx &effect) { return addFx(fl::Ptr<Fx>::NoTracking(effect)); }
+    int addFx(Fx &effect) { return addFx(fl::make_shared_no_tracking(effect)); }
 
     /**
      * @brief Requests removal of an effect from the engine, which might not
@@ -88,7 +85,7 @@ class FxEngine {
      * @param now The current time in milliseconds.
      * @param outputBuffer The buffer to render the effect into.
      */
-    bool draw(uint32_t now, CRGB *outputBuffer);
+    bool draw(fl::u32 now, CRGB *outputBuffer);
 
     /**
      * @brief Transitions to the next effect in the sequence.

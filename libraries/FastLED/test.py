@@ -1,286 +1,411 @@
 #!/usr/bin/env python3
+
+import json
 import os
 import sys
-import subprocess
 import threading
 import time
-import argparse
-import hashlib
-import json
+import traceback
+import warnings
 from pathlib import Path
-from typing import List, Any, Dict
-from ci.running_process import RunningProcess
+from typing import Optional
 
-_PIO_CHECK_ENABLED = False
+import psutil
 
-_IS_GITHUB = os.environ.get('GITHUB_ACTIONS') == 'true'
-
-
-def run_command(cmd: List[str], **kwargs: Any) -> None:
-    """Run a command and handle errors"""
-    try:
-        subprocess.run(cmd, check=True, **kwargs)
-    except subprocess.CalledProcessError as e:
-        sys.exit(e.returncode)
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Run FastLED tests')
-    parser.add_argument('--cpp', action='store_true',
-                       help='Run C++ tests only')
-    parser.add_argument('test', type=str, nargs='?', default=None,
-                       help='Specific C++ test to run')
-    parser.add_argument("--clang", action="store_true", help="Use Clang compiler")
-    parser.add_argument("--clean", action="store_true", help="Clean build before compiling")
-    return parser.parse_args()
+from ci.util.running_process_manager import RunningProcessManagerSingleton
+from ci.util.test_args import parse_args
+from ci.util.test_commands import run_command
+from ci.util.test_env import (
+    dump_thread_stacks,
+    get_process_tree_info,
+    setup_environment,
+    setup_force_exit,
+    setup_watchdog,
+)
+from ci.util.test_runner import runner as test_runner
+from ci.util.test_types import (
+    FingerprintResult,
+    TestArgs,
+    calculate_fingerprint,
+    process_test_flags,
+)
 
 
-def _make_pio_check_cmd() -> List[str]:
-    return ['pio', 'check', '--skip-packages', 
-                            '--src-filters=+<src/>', '--severity=medium',
-                            '--fail-on-defect=high', '--flags',
-                            '--inline-suppr --enable=all --std=c++17']
+_CANCEL_WATCHDOG = threading.Event()
+
+_TIMEOUT_EVERYTHING = 600
+
+if os.environ.get("_GITHUB"):
+    _TIMEOUT_EVERYTHING = 1200  # Extended timeout for GitHub Linux builds
+    print(
+        f"GitHub Windows environment detected - using extended timeout: {_TIMEOUT_EVERYTHING} seconds"
+    )
 
 
-def make_compile_uno_test_process() -> RunningProcess:
-    """Create a process to compile the uno tests"""
-    cmd = ['uv', 'run', 'ci/ci-compile.py', 'uno', '--examples', 'Blink', '--no-interactive']
-    # shell=True wasn't working for some reason
-    # cmd = cmd + ['||'] + cmd
-    # return RunningProcess(cmd, echo=False, auto_run=not _IS_GITHUB, shell=True)
-    return RunningProcess(cmd, echo=False, auto_run=not _IS_GITHUB)
+def make_watch_dog_thread(
+    seconds: int,
+) -> threading.Thread:  # 60 seconds default timeout
+    def watchdog_timer() -> None:
+        time.sleep(seconds)
+        if _CANCEL_WATCHDOG.is_set():
+            return
+
+        warnings.warn(f"Watchdog timer expired after {seconds} seconds.")
+
+        dump_thread_stacks()
+        print(f"Watchdog timer expired after {seconds} seconds - forcing exit")
+
+        # Dump outstanding running processes (if any)
+        try:
+            RunningProcessManagerSingleton.dump_active()
+        except Exception as e:
+            print(f"Failed to dump active processes: {e}")
+
+        traceback.print_stack()
+        time.sleep(0.5)
+
+        os._exit(2)  # Exit with error code 2 to indicate timeout (SIGTERM)
+
+    thr = threading.Thread(target=watchdog_timer, daemon=True, name="WatchdogTimer")
+    thr.start()
+    return thr
 
 
-def fingerprint_code_base(start_directory: Path, glob: str = "**/*.h,**/*.cpp,**/*.hpp") -> Dict[str, str]:
-    """
-    Create a fingerprint of the code base by hashing file contents.
-    
-    Args:
-        start_directory: The root directory to start scanning from
-        glob: Comma-separated list of glob patterns to match files
-    
-    Returns:
-        A dictionary with hash and status
-    """
-    result = {
-        "hash": "",
-    }
-    
-    try:
-        hasher = hashlib.sha256()
-        patterns = glob.split(',')
-        
-        # Get all matching files
-        all_files = []
-        for pattern in patterns:
-            pattern = pattern.strip()
-            all_files.extend(sorted(start_directory.glob(pattern)))
-        
-        # Sort files for consistent ordering
-        all_files.sort()
-        
-        # Process each file
-        for file_path in all_files:
-            if file_path.is_file():
-                # Add the relative path to the hash
-                rel_path = file_path.relative_to(start_directory)
-                hasher.update(str(rel_path).encode('utf-8'))
-                
-                # Add the file content to the hash
-                try:
-                    with open(file_path, 'rb') as f:
-                        # Read in chunks to handle large files
-                        for chunk in iter(lambda: f.read(4096), b''):
-                            hasher.update(chunk)
-                except Exception as e:
-                    # If we can't read the file, include the error in the hash
-                    hasher.update(f"ERROR:{str(e)}".encode('utf-8'))
-        
-        result["hash"] = hasher.hexdigest()
-        return result
-    except Exception as e:
-        result["status"] = f"error: {str(e)}"
-        return result
+def run_qemu_tests(args: TestArgs) -> None:
+    """Run examples in QEMU emulation using Docker."""
+    from pathlib import Path
 
+    from ci.dockerfiles.qemu_esp32_docker import DockerQEMURunner
+    from ci.util.running_process import RunningProcess
 
-def calculate_fingerprint(root_dir: Path | None = None) -> Dict[str, str]:
-    """
-    Calculate the code base fingerprint.
-    
-    Args:
-        root_dir: The root directory to start scanning from. If None, uses src directory.
-        
-    Returns:
-        The fingerprint result dictionary
-    """
-    if root_dir is None:
-        root_dir = Path.cwd() / "src"
-    
-    start_time = time.time()
-    # Compute the fingerprint
-    result = fingerprint_code_base(root_dir)
-    elapsed_time = time.time() - start_time
-    # Add timing information to the result
-    result["elapsed_seconds"] = f"{elapsed_time:.2f}"
-    
-    return result
+    if not args.qemu or len(args.qemu) < 1:
+        print("Error: --qemu requires a platform (e.g., esp32s3)")
+        sys.exit(1)
 
+    platform = args.qemu[0].lower()
+    supported_platforms = ["esp32dev", "esp32c3", "esp32s3"]
+    if platform not in supported_platforms:
+        print(
+            f"Error: Unsupported QEMU platform: {platform}. Supported platforms: {', '.join(supported_platforms)}"
+        )
+        sys.exit(1)
+
+    print(f"Running {platform.upper()} QEMU tests using Docker...")
+
+    # Determine which examples to test (skip the platform argument)
+    examples_to_test = args.qemu[1:] if len(args.qemu) > 1 else ["BlinkParallel"]
+    if not examples_to_test:  # Empty list means test all available examples
+        examples_to_test = ["BlinkParallel", "RMT5WorkerPool"]
+
+    print(f"Testing examples: {examples_to_test}")
+
+    # Quick test mode - just validate the setup
+    if os.getenv("FASTLED_QEMU_QUICK_TEST") == "true":
+        print("Quick test mode - validating Docker QEMU setup only")
+        print("QEMU ESP32 Docker option is working correctly!")
+        return
+
+    # Initialize Docker QEMU runner
+    docker_runner = DockerQEMURunner()
+
+    # Check if Docker is available
+    if not docker_runner.check_docker_available():
+        print("ERROR: Docker is not available or not running")
+        print("Please install Docker and ensure it's running")
+        sys.exit(1)
+
+    success_count = 0
+    failure_count = 0
+
+    # Test each example
+    for example in examples_to_test:
+        print(f"\n--- Testing {example} ---")
+
+        try:
+            # Build the example for the specified platform
+            print(f"Building {example} for {platform}...")
+            build_proc = RunningProcess(
+                ["uv", "run", "ci/ci-compile.py", platform, "--examples", example],
+                timeout=600,
+                auto_run=True,
+            )
+
+            # Stream build output
+            with build_proc.line_iter(timeout=None) as it:
+                for line in it:
+                    print(line)
+
+            build_returncode = build_proc.wait()
+            if build_returncode != 0:
+                print(f"Build failed for {example} with exit code: {build_returncode}")
+                failure_count += 1
+                continue
+
+            print(f"Build successful for {example}")
+
+            # Check if build artifacts exist
+            build_dir = Path(f".build/pio/{platform}")
+            if not build_dir.exists():
+                print(f"Build directory not found: {build_dir}")
+                failure_count += 1
+                continue
+
+            print(f"Build artifacts found in {build_dir}")
+
+            # Run in QEMU using Docker
+            print(f"Running {example} in Docker QEMU...")
+            # Use the nested PlatformIO build directory path
+            pio_build_dir = build_dir / ".pio" / "build" / platform
+
+            # Set up interrupt regex pattern
+            interrupt_regex = "(FL_WARN.*test finished)|(Setup complete - starting blink animation)|(guru meditation)|(abort\\(\\))|(LoadProhibited)"
+
+            # Set up output file for GitHub Actions
+            output_file = "qemu_output.log"
+
+            # Determine machine type based on platform
+            if platform == "esp32c3":
+                machine_type = "esp32c3"
+            elif platform == "esp32s3":
+                machine_type = "esp32s3"
+            else:
+                machine_type = "esp32"
+
+            # Run QEMU in Docker
+            qemu_returncode = docker_runner.run(
+                firmware_path=pio_build_dir,
+                timeout=30,
+                flash_size=4,
+                interrupt_regex=interrupt_regex,
+                interactive=False,
+                output_file=output_file,
+                machine=machine_type,
+            )
+
+            if qemu_returncode == 0:
+                print(f"SUCCESS: {example} ran successfully in Docker QEMU")
+                success_count += 1
+            else:
+                print(
+                    f"FAILED: {example} failed in Docker QEMU with exit code: {qemu_returncode}"
+                )
+                failure_count += 1
+
+        except Exception as e:
+            print(f"ERROR: {example} failed with exception: {e}")
+            failure_count += 1
+
+    # Summary
+    print(f"\n=== QEMU {platform.upper()} Test Summary ===")
+    print(f"Examples tested: {len(examples_to_test)}")
+    print(f"Successful: {success_count}")
+    print(f"Failed: {failure_count}")
+
+    if failure_count > 0:
+        print("Some tests failed. See output above for details.")
+        sys.exit(1)
+    else:
+        print("All QEMU tests passed!")
 
 
 def main() -> None:
     try:
-        # Start a watchdog timer to kill the process if it takes too long (10 minutes)
-        def watchdog_timer():
-            time.sleep(600)  # 10 minutes
-            print("Watchdog timer expired after 10 minutes - forcing exit")
-            os._exit(2)  # Exit with error code 2 to indicate timeout
-        
-        watchdog = threading.Thread(target=watchdog_timer, daemon=True, name="WatchdogTimer")
-        watchdog.start()
-        
-        args = parse_args()
-        
-        # Change to script directory
+        # Record start time
+        start_time = time.time()
+
+        # Change to script directory first
         os.chdir(Path(__file__).parent)
 
-        cache_dir = Path('.cache')
+        # Parse and process arguments
+        args = parse_args()
+
+        # Default to parallel execution for better performance
+        # Users can disable parallel compilation by setting NO_PARALLEL=1 or using --no-parallel
+        if os.environ.get("NO_PARALLEL", "0") == "1":
+            args.no_parallel = True
+
+        args = process_test_flags(args)
+
+        timeout = _TIMEOUT_EVERYTHING
+        # Adjust watchdog timeout based on test configuration
+        # Sequential examples compilation can take up to 30 minutes
+        if args.examples is not None and args.no_parallel:
+            # 35 minutes for sequential examples compilation
+            timeout = 2100
+            print(
+                f"Adjusted watchdog timeout for sequential examples compilation: {timeout} seconds"
+            )
+
+        # Set up watchdog timer
+        watchdog = make_watch_dog_thread(seconds=timeout)
+
+        # Handle --no-interactive flag
+        if args.no_interactive:
+            os.environ["FASTLED_CI_NO_INTERACTIVE"] = "true"
+            os.environ["GITHUB_ACTIONS"] = (
+                "true"  # This ensures all subprocess also run in non-interactive mode
+            )
+
+        # Handle --interactive flag
+        if args.interactive:
+            os.environ.pop("FASTLED_CI_NO_INTERACTIVE", None)
+            os.environ.pop("GITHUB_ACTIONS", None)
+
+        # Set up remaining environment based on arguments
+        setup_environment(args)
+
+        # Handle stack trace control
+        enable_stack_trace = not args.no_stack_trace
+        if enable_stack_trace:
+            print("Stack trace dumping enabled for test timeouts")
+        else:
+            print("Stack trace dumping disabled for test timeouts")
+
+        # Validate conflicting arguments
+        if args.no_interactive and args.interactive:
+            print(
+                "Error: --interactive and --no-interactive cannot be used together",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Set up fingerprint caching
+        cache_dir = Path(".cache")
         cache_dir.mkdir(exist_ok=True)
-        fingerprint_file = cache_dir / 'fingerprint.json'
+        fingerprint_file = cache_dir / "fingerprint.json"
 
-        def write_fingerprint(fingerprint: Dict[str, str]) -> None:
-            with open(fingerprint_file, 'w') as f:
-                json.dump(fingerprint, f, indent=2)
+        def write_fingerprint(fingerprint: FingerprintResult) -> None:
+            fingerprint_dict = {
+                "hash": fingerprint.hash,
+                "elapsed_seconds": fingerprint.elapsed_seconds,
+                "status": fingerprint.status,
+            }
+            with open(fingerprint_file, "w") as f:
+                json.dump(fingerprint_dict, f, indent=2)
 
-        def read_fingerprint() -> Dict[str, str] | None:
+        def read_fingerprint() -> FingerprintResult | None:
             if fingerprint_file.exists():
-                with open(fingerprint_file, 'r') as f:
+                with open(fingerprint_file, "r") as f:
                     try:
-                        return json.load(f)
+                        data = json.load(f)
+                        return FingerprintResult(
+                            hash=data.get("hash", ""),
+                            elapsed_seconds=data.get("elapsed_seconds"),
+                            status=data.get("status"),
+                        )
                     except json.JSONDecodeError:
                         print("Invalid fingerprint file. Recalculating...")
             return None
-        
 
-        prev_fingerprint: dict[str, str] | None = read_fingerprint()        
-        # Calculate fingerprint
+        # Calculate and save fingerprint
+        prev_fingerprint = read_fingerprint()
         fingerprint_data = calculate_fingerprint()
-        src_code_change: bool
-        if prev_fingerprint is None:
-            src_code_change = True
-        else:
-            try:
-                src_code_change = fingerprint_data["hash"] != prev_fingerprint["hash"]
-            except KeyError:
-                print("Invalid fingerprint file. Recalculating...")
-                src_code_change = True
-        # print(f"Fingerprint: {fingerprint_result['hash']}")
-        
-        # Create .cache directory if it doesn't exist
-
-        # Save the fingerprint to a file as JSON
-
+        src_code_change = (
+            True
+            if prev_fingerprint is None
+            else fingerprint_data.hash != prev_fingerprint.hash
+        )
         write_fingerprint(fingerprint_data)
 
-        cmd_list = [
-            "uv",
-            "run",
-            "ci/cpp_test_run.py"
-        ]
-
-        if args.clang:
-            cmd_list.append("--clang")
-
-        if args.test:
-            cmd_list.append("--test")
-            cmd_list.append(args.test)
-        if args.clean:
-            cmd_list.append("--clean")
-
-        cmd_str_cpp = subprocess.list2cmdline(cmd_list)
-
-        if args.cpp:
-            # Compile and run C++ tests
-            start_time = time.time()
-            
-            if args.test:
-                # Run specific C++ test
-                proc = RunningProcess(cmd_str_cpp)
-                proc.wait()
-                if proc.returncode != 0:
-                    print(f"Command failed: {proc.command}")
-                    sys.exit(proc.returncode)
-            else:
-                # Run all C++ tests
-                proc = RunningProcess(cmd_str_cpp)
-                proc.wait()
-                if proc.returncode != 0:
-                    print(f"Command failed: {proc.command}")
-                    sys.exit(proc.returncode)
-                
-            print(f"Time elapsed: {time.time() - start_time:.2f}s")
+        # Handle QEMU testing
+        if args.qemu is not None:
+            print("=== QEMU Testing ===")
+            run_qemu_tests(args)
             return
-        
-        
-        cmd_list = _make_pio_check_cmd()
-        if not _PIO_CHECK_ENABLED:
-            cmd_list = ['echo', 'pio check is disabled']
 
-        cmd_str = subprocess.list2cmdline(cmd_list)
-    
-        print(f"Running command (in the background): {cmd_str}")
-        pio_process = RunningProcess(cmd_str, echo=False, auto_run=not _IS_GITHUB)
-        cpp_test_proc = RunningProcess(cmd_str_cpp)
-        compile_native_proc = RunningProcess('uv run ci/ci-compile-native.py', echo=False, auto_run=not _IS_GITHUB)
-        pytest_proc = RunningProcess('uv run pytest -s ci/tests -xvs -n auto --durations=0', echo=False, auto_run=not _IS_GITHUB)
-        tests = [cpp_test_proc, compile_native_proc, pytest_proc, pio_process]
-        if src_code_change:
-            print("Source code changed, running uno tests")
-            tests += [make_compile_uno_test_process()]
+        # Run tests using the test runner with sequential example compilation
+        # Check if we need to use sequential execution to avoid resource conflicts
+        if not args.unit and not args.examples and not args.py and args.full:
+            # Full test mode - use RunningProcessGroup for dependency-based execution
+            from ci.util.running_process import RunningProcess
+            from ci.util.running_process_group import (
+                ExecutionMode,
+                ProcessExecutionConfig,
+                RunningProcessGroup,
+            )
+            from ci.util.test_runner import (
+                create_examples_test_process,
+                create_python_test_process,
+            )
 
-        is_first = True
-        for test in tests:
-            was_first = is_first
-            is_first = False
-            sys.stdout.flush()
-            if not test.auto_run:
-                test.run()
-            print(f"Waiting for command: {test.command}")
-            # make a thread that will say waiting for test {test} to finish...<seconds>
-            # and then kill the test if it takes too long (> 120 seconds)
-            event_stopped = threading.Event()
-            def _runner() -> None:
-                start_time = time.time()
-                while not event_stopped.wait(1):
-                    curr_time = time.time()
-                    seconds = int(curr_time - start_time)
-                    if not was_first:  # skip printing for the first test since it echo's out.
-                        print(f"Waiting for command: {test.command} to finish...{seconds} seconds")
-            runner_thread = threading.Thread(target=_runner, daemon=True)
-            runner_thread.start()
-            test.wait()
-            event_stopped.set()
-            runner_thread.join(timeout=1)
-            if not test.echo:
-                for line in test.stdout.splitlines():
-                    print(line)
-            if test.returncode != 0:
-                [t.kill() for t in tests]
-                print(f"\nCommand failed: {test.command} with return code {test.returncode}")
-                sys.exit(test.returncode)
+            # Create Python test process (runs first)
+            python_process = create_python_test_process(
+                enable_stack_trace=False, full_tests=True
+            )
+            python_process.auto_run = False
 
-        print("All tests passed")
+            # Create examples compilation process
+            examples_process = create_examples_test_process(
+                args, not args.no_stack_trace
+            )
+            examples_process.auto_run = False
 
-        # Launch a force exit daemon thread that waits for 1 second until invoking os._exit(0)
-        def force_exit():
-            time.sleep(1)
-            print("Force exit daemon thread invoked")
-            os._exit(1)
-        daemon_thread = threading.Thread(target=force_exit, daemon=True, name="ForceExitDaemon")
-        daemon_thread.start()
+            # Configure sequential execution with dependencies
+            config = ProcessExecutionConfig(
+                execution_mode=ExecutionMode.SEQUENTIAL_WITH_DEPENDENCIES,
+                verbose=args.verbose,
+                timeout_seconds=2100,  # 35 minutes for sequential examples compilation
+                live_updates=True,  # Enable real-time display
+                display_type="auto",  # Auto-detect best display format
+            )
+
+            # Create process group and set up dependency
+            group = RunningProcessGroup(config=config, name="FullTestSequence")
+            group.add_process(python_process)
+            group.add_dependency(
+                examples_process, python_process
+            )  # examples depends on python
+
+            try:
+                # Start real-time display for full test mode
+                display_thread = None
+                if not args.verbose and config.live_updates:
+                    try:
+                        from ci.util.process_status_display import (
+                            display_process_status,
+                        )
+
+                        display_thread = display_process_status(
+                            group,
+                            display_type=config.display_type,
+                            update_interval=config.update_interval,
+                        )
+                    except ImportError:
+                        pass  # Fall back to normal execution
+
+                timings = group.run()
+
+                # Stop display thread if it was started
+                if display_thread:
+                    time.sleep(0.5)
+
+                print("Sequential test execution completed successfully")
+
+                # Print timing summary
+                if timings:
+                    print(f"\nExecution Summary:")
+                    for timing in timings:
+                        print(f"  {timing.name}: {timing.duration:.2f}s")
+            except Exception as e:
+                print(f"Sequential test execution failed: {e}")
+                sys.exit(1)
+        else:
+            # Use normal test runner for other cases
+            test_runner(args, src_code_change)
+
+        # Set up force exit daemon and exit
+        daemon_thread = setup_force_exit()
+        _CANCEL_WATCHDOG.set()
+
+        # Print total execution time
+        elapsed_time = time.time() - start_time
+        print(f"\nTotal execution time: {elapsed_time:.2f} seconds")
+
         sys.exit(0)
+
     except KeyboardInterrupt:
         sys.exit(130)  # Standard Unix practice: 128 + SIGINT's signal number (2)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

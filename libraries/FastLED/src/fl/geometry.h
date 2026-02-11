@@ -1,7 +1,16 @@
-
 #pragma once
 
+#include "fl/int.h"
 #include "fl/math.h"
+#include "fl/compiler_control.h"
+#include "fl/move.h"
+
+#include "fl/compiler_control.h"
+
+FL_DISABLE_WARNING_PUSH
+FL_DISABLE_WARNING_FLOAT_CONVERSION
+FL_DISABLE_WARNING_SIGN_CONVERSION
+FL_DISABLE_WARNING_IMPLICIT_INT_CONVERSION
 
 namespace fl {
 
@@ -17,7 +26,10 @@ template <typename T> struct vec3 {
     template <typename U>
     explicit constexpr vec3(U xyz) : x(xyz), y(xyz), z(xyz) {}
 
-    constexpr vec3(const vec3 &p) : x(p.x), y(p.y), z(p.z) {}
+    constexpr vec3(const vec3 &p) = default;
+    constexpr vec3(vec3 &&p) noexcept = default;
+    vec3 &operator=(vec3 &&p) noexcept = default;
+    
     vec3 &operator*=(const float &f) {
         x *= f;
         y *= f;
@@ -43,7 +55,7 @@ template <typename T> struct vec3 {
         return *this;
     }
 
-    vec3 &operator/=(const uint16_t &d) {
+    vec3 &operator/=(const u16 &d) {
         x /= d;
         y /= d;
         z /= d;
@@ -175,14 +187,17 @@ using vec3f = vec3<float>; // Full precision but slow.
 template <typename T> struct vec2 {
     // value_type
     using value_type = T;
-    T x = 0;
-    T y = 0;
+    value_type x = 0;
+    value_type y = 0;
     constexpr vec2() = default;
     constexpr vec2(T x, T y) : x(x), y(y) {}
 
     template <typename U> explicit constexpr vec2(U xy) : x(xy), y(xy) {}
 
-    constexpr vec2(const vec2 &p) : x(p.x), y(p.y) {}
+    constexpr vec2(const vec2 &p) = default;
+    constexpr vec2(vec2 &&p) noexcept = default;
+    vec2 &operator=(vec2 &&p) noexcept = default;
+    
     vec2 &operator*=(const float &f) {
         x *= f;
         y *= f;
@@ -207,7 +222,7 @@ template <typename T> struct vec2 {
         return *this;
     }
 
-    vec2 &operator/=(const uint16_t &d) {
+    vec2 &operator/=(const u16 &d) {
         // *this = point_xy_math::div(*this, d);
         x /= d;
         y /= d;
@@ -316,8 +331,8 @@ template <typename T> struct vec2 {
 };
 
 using vec2f = vec2<float>; // Full precision but slow.
-using vec2u8 = vec2<uint8_t>; // 8-bit unsigned integer vector.
-using vec2i16 = vec2<int16_t>; // 16-bit signed integer vector.
+using vec2u8 = vec2<fl::u8>; // 8-bit unsigned integer vector.
+using vec2i16 = vec2<i16>; // 16-bit signed integer vector.
 
 // Legacy support for vec3
 using pair_xyz_float = vec3<float>; // Legacy name for vec3f
@@ -344,6 +359,11 @@ template <typename T> struct line_xy {
 
     line_xy(T start_x, T start_y, T end_x, T end_y)
         : start(start_x, start_y), end(end_x, end_y) {}
+    
+    line_xy(const line_xy &other) = default;
+    line_xy &operator=(const line_xy &other) = default;
+    line_xy(line_xy &&other) noexcept = default;
+    line_xy &operator=(line_xy &&other) noexcept = default;
 
     bool empty() const { return (start == end); }
 
@@ -363,10 +383,10 @@ template <typename T> struct line_xy {
         float dy = b.y - a.y;
         float len_sq = dx * dx + dy * dy;
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
+        FL_DISABLE_WARNING_PUSH
+        FL_DISABLE_WARNING(float-equal)
         const bool is_zero = (len_sq == 0.0f);
-#pragma GCC diagnostic pop
+        FL_DISABLE_WARNING_POP
 
         if (is_zero) {
             // a == b, the segment is a point
@@ -404,10 +424,15 @@ template <typename T> struct rect {
 
     rect(T min_x, T min_y, T max_x, T max_y)
         : mMin(min_x, min_y), mMax(max_x, max_y) {}
+    
+    rect(const rect &other) = default;
+    rect &operator=(const rect &other) = default;
+    rect(rect &&other) noexcept = default;
+    rect &operator=(rect &&other) noexcept = default;
 
-    uint16_t width() const { return mMax.x - mMin.x; }
+    u16 width() const { return mMax.x - mMin.x; }
 
-    uint16_t height() const { return mMax.y - mMin.y; }
+    u16 height() const { return mMax.y - mMin.y; }
 
     bool empty() const { return (mMin.x == mMax.x && mMin.y == mMax.y); }
 
@@ -449,3 +474,5 @@ template <typename T> struct rect {
 };
 
 } // namespace fl
+
+FL_DISABLE_WARNING_POP

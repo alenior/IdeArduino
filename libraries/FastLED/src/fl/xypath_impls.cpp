@@ -15,7 +15,7 @@
 namespace fl {
 
 LinePath::LinePath(float x0, float y0, float x1, float y1) {
-    mParams = NewPtr<LinePathParams>();
+    mParams = fl::make_shared<LinePathParams>();
     params().x0 = x0;
     params().y0 = y0;
     params().x1 = x1;
@@ -79,7 +79,7 @@ vec2f HeartPath::compute(float alpha) {
     return vec2f(x, y);
 }
 
-ArchimedeanSpiralPath::ArchimedeanSpiralPath(uint8_t turns, float radius)
+ArchimedeanSpiralPath::ArchimedeanSpiralPath(u8 turns, float radius)
     : mTurns(turns), mRadius(radius) {}
 
 vec2f ArchimedeanSpiralPath::compute(float alpha) {
@@ -103,8 +103,8 @@ vec2f ArchimedeanSpiralPath::compute(float alpha) {
     return vec2f(x, y);
 }
 
-RosePath::RosePath(uint8_t n, uint8_t d) {
-    mParams = NewPtr<RosePathParams>();
+RosePath::RosePath(u8 n, u8 d) {
+    mParams = fl::make_shared<RosePathParams>();
     params().n = n;
     params().d = d;
 }
@@ -189,14 +189,14 @@ vec2f GielisCurvePath::compute(float alpha) {
     return vec2f{x, y};
 }
 
-const Str CirclePath::name() const { return "CirclePath"; }
+const string CirclePath::name() const { return "CirclePath"; }
 
 vec2f PointPath::compute(float alpha) {
     FASTLED_UNUSED(alpha);
     return mPoint;
 }
 
-const Str PointPath::name() const { return "PointPath"; }
+const string PointPath::name() const { return "PointPath"; }
 
 void PointPath::set(float x, float y) { set(vec2f(x, y)); }
 
@@ -206,7 +206,7 @@ PointPath::PointPath(float x, float y) : mPoint(x, y) {}
 
 PointPath::PointPath(vec2f p) : mPoint(p) {}
 
-const Str LinePath::name() const { return "LinePath"; }
+const string LinePath::name() const { return "LinePath"; }
 
 LinePathParams &LinePath::params() { return *mParams; }
 
@@ -214,41 +214,41 @@ const LinePathParams &LinePath::params() const { return *mParams; }
 
 LinePath::LinePath(const LinePathParamsPtr &params) : mParams(params) {}
 
-const Str HeartPath::name() const { return "HeartPath"; }
+const string HeartPath::name() const { return "HeartPath"; }
 
-const Str ArchimedeanSpiralPath::name() const {
+const string ArchimedeanSpiralPath::name() const {
     return "ArchimedeanSpiralPath";
 }
 
-void ArchimedeanSpiralPath::setTurns(uint8_t turns) { mTurns = turns; }
+void ArchimedeanSpiralPath::setTurns(u8 turns) { mTurns = turns; }
 
 void ArchimedeanSpiralPath::setRadius(float radius) { mRadius = radius; }
 
-const Str RosePath::name() const { return "RosePath"; }
+const string RosePath::name() const { return "RosePath"; }
 
-void RosePath::setN(uint8_t n) { params().n = n; }
+void RosePath::setN(u8 n) { params().n = n; }
 
-void RosePath::setD(uint8_t d) { params().d = d; }
+void RosePath::setD(u8 d) { params().d = d; }
 
-RosePath::RosePath(const Ptr<RosePathParams> &p) : mParams(p) {}
+RosePath::RosePath(const fl::shared_ptr<RosePathParams> &p) : mParams(p) {}
 
 RosePathParams &RosePath::params() { return *mParams; }
 
 const RosePathParams &RosePath::params() const { return *mParams; }
 
-const Str PhyllotaxisPath::name() const { return "PhyllotaxisPath"; }
+const string PhyllotaxisPath::name() const { return "PhyllotaxisPath"; }
 
-PhyllotaxisPath::PhyllotaxisPath(const Ptr<PhyllotaxisParams> &p)
+PhyllotaxisPath::PhyllotaxisPath(const fl::shared_ptr<PhyllotaxisParams> &p)
     : mParams(p) {}
 
 PhyllotaxisParams &PhyllotaxisPath::params() { return *mParams; }
 
 const PhyllotaxisParams &PhyllotaxisPath::params() const { return *mParams; }
 
-GielisCurvePath::GielisCurvePath(const Ptr<GielisCurveParams> &p)
+GielisCurvePath::GielisCurvePath(const fl::shared_ptr<GielisCurveParams> &p)
     : mParams(p) {}
 
-const Str GielisCurvePath::name() const { return "GielisCurvePath"; }
+const string GielisCurvePath::name() const { return "GielisCurvePath"; }
 void GielisCurvePath::setA(float a) { params().a = a; }
 void GielisCurvePath::setB(float b) { params().b = b; }
 void GielisCurvePath::setM(float m) { params().m = m; }
@@ -258,7 +258,7 @@ void GielisCurvePath::setN3(float n3) { params().n3 = n3; }
 GielisCurveParams &GielisCurvePath::params() { return *mParams; }
 const GielisCurveParams &GielisCurvePath::params() const { return *mParams; }
 
-CatmullRomPath::CatmullRomPath(const Ptr<CatmullRomParams> &p) : mParams(p) {}
+CatmullRomPath::CatmullRomPath(const fl::shared_ptr<CatmullRomParams> &p) : mParams(p) {}
 
 void CatmullRomPath::addPoint(vec2f p) { params().addPoint(p); }
 
@@ -266,7 +266,7 @@ void CatmullRomPath::addPoint(float x, float y) { params().addPoint(x, y); }
 
 void CatmullRomPath::clear() { params().clear(); }
 
-size_t CatmullRomPath::size() const { return params().size(); }
+fl::size CatmullRomPath::size() const { return params().size(); }
 
 CatmullRomParams &CatmullRomPath::params() { return *mParams; }
 
@@ -359,6 +359,6 @@ vec2f CatmullRomPath::interpolate(const vec2f &p0, const vec2f &p1,
     return vec2f(x, y);
 }
 
-const Str CatmullRomPath::name() const { return "CatmullRomPath"; }
+const string CatmullRomPath::name() const { return "CatmullRomPath"; }
 
 } // namespace fl

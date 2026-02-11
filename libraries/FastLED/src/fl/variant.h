@@ -2,13 +2,15 @@
 
 #include "fl/inplacenew.h"  // for fl::move, fl::forward, in‐place new
 #include "fl/type_traits.h" // for fl::enable_if, fl::is_same, etc.
+#include "fl/bit_cast.h"    // for safe type-punning
 
 namespace fl {
 
 // A variant that can hold any of N different types
-template <typename... Types> class Variant {
+template <typename... Types> 
+class alignas(max_align<Types...>::value) Variant {
   public:
-    using Tag = uint8_t;
+    using Tag = u8;
     static constexpr Tag Empty = 0;
 
     // –– ctors/dtors/assign as before …
@@ -36,7 +38,8 @@ template <typename... Types> class Variant {
     Variant(Variant &&other) noexcept : _tag(Empty) {
         if (!other.empty()) {
             move_construct_from(other);
-            other.reset();
+            // After moving, mark other as empty to prevent destructor calls on moved-from objects
+            other._tag = Empty;
         }
     }
 
@@ -57,7 +60,8 @@ template <typename... Types> class Variant {
             reset();
             if (!other.empty()) {
                 move_construct_from(other);
-                other.reset();
+                // After moving, mark other as empty to prevent destructor calls on moved-from objects
+                other._tag = Empty;
             }
         }
         return *this;
@@ -104,26 +108,40 @@ template <typename... Types> class Variant {
     }
 
     template <typename T> T *ptr() {
-        return is<T>() ? reinterpret_cast<T *>(&_storage) : nullptr;
+        if (!is<T>()) return nullptr;
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        return fl::bit_cast_ptr<T>(&_storage[0]);
     }
 
     template <typename T> const T *ptr() const {
-        return is<T>() ? reinterpret_cast<const T *>(&_storage) : nullptr;
+        if (!is<T>()) return nullptr;
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        return fl::bit_cast_ptr<const T>(&_storage[0]);
     }
 
-    // template <typename T> T &get() {
-    //     if (auto p = ptr<T>())
-    //         return *p;
-    //     static T dummy;
-    //     return dummy;
-    // }
+    /// @brief Get a reference to the stored value of type T
+    /// @tparam T The type to retrieve
+    /// @return Reference to the stored value
+    /// @note Asserts if the variant doesn't contain type T. Use is<T>() to check first.
+    /// @warning Will crash if called with wrong type - this is intentional for fast failure
+    template <typename T> T &get() {
+        // Dereference ptr() directly - will crash with null pointer access if wrong type
+        // This provides fast failure semantics similar to std::variant
+        return *ptr<T>();
+    }
 
-    // template <typename T> const T &get() const {
-    //     if (auto p = ptr<T>())
-    //         return *p;
-    //     static const T dummy{};
-    //     return dummy;
-    // }
+    /// @brief Get a const reference to the stored value of type T
+    /// @tparam T The type to retrieve  
+    /// @return Const reference to the stored value
+    /// @note Asserts if the variant doesn't contain type T. Use is<T>() to check first.
+    /// @warning Will crash if called with wrong type - this is intentional for fast failure
+    template <typename T> const T &get() const {
+        // Dereference ptr() directly - will crash with null pointer access if wrong type
+        // This provides fast failure semantics similar to std::variant
+        return *ptr<T>();
+    }
 
     template <typename T> bool equals(const T &other) const {
         if (auto p = ptr<T>()) {
@@ -147,7 +165,11 @@ template <typename... Types> class Variant {
             &Variant::template visit_fn<Types, Visitor>...};
 
         // _tag is 1-based, so dispatch in O(1) via one indirect call:
-        table[_tag - 1](&_storage, visitor);
+        // Check bounds to prevent out-of-bounds access
+        size_t index = _tag - 1;
+        if (index < sizeof...(Types)) {
+            table[index](&_storage, visitor);
+        }
     }
 
     template <typename Visitor> void visit(Visitor &visitor) const {
@@ -162,21 +184,29 @@ template <typename... Types> class Variant {
             &Variant::template visit_fn_const<Types, Visitor>...};
 
         // _tag is 1-based, so dispatch in O(1) via one indirect call:
-        table[_tag - 1](&_storage, visitor);
+        // Check bounds to prevent out-of-bounds access
+        size_t index = _tag - 1;
+        if (index < sizeof...(Types)) {
+            table[index](&_storage, visitor);
+        }
     }
 
   private:
     // –– helper for the visit table
     template <typename T, typename Visitor>
     static void visit_fn(void *storage, Visitor &v) {
-        // unsafe_cast is OK here because we know _tag matched T
-        v.accept(*reinterpret_cast<T *>(storage));
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        T* typed_ptr = fl::bit_cast_ptr<T>(storage);
+        v.accept(*typed_ptr);
     }
 
     template <typename T, typename Visitor>
     static void visit_fn_const(const void *storage, Visitor &v) {
-        // unsafe_cast is OK here because we know _tag matched T
-        v.accept(*reinterpret_cast<const T *>(storage));
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        const T* typed_ptr = fl::bit_cast_ptr<const T>(storage);
+        v.accept(*typed_ptr);
     }
 
     // –– destroy via table
@@ -189,7 +219,10 @@ template <typename... Types> class Variant {
     }
 
     template <typename T> static void destroy_fn(void *storage) {
-        reinterpret_cast<T *>(storage)->~T();
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        T* typed_ptr = fl::bit_cast_ptr<T>(storage);
+        typed_ptr->~T();
     }
 
     // –– copy‐construct via table
@@ -202,7 +235,10 @@ template <typename... Types> class Variant {
 
     template <typename T>
     static void copy_fn(void *storage, const Variant &other) {
-        new (storage) T(*reinterpret_cast<const T *>(&other._storage));
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        const T* source_ptr = fl::bit_cast_ptr<const T>(&other._storage[0]);
+        new (storage) T(*source_ptr);
     }
 
     // –– move‐construct via table
@@ -215,7 +251,10 @@ template <typename... Types> class Variant {
     }
 
     template <typename T> static void move_fn(void *storage, Variant &other) {
-        new (storage) T(fl::move(*reinterpret_cast<T *>(&other._storage)));
+        // Use bit_cast_ptr for safe type-punning on properly aligned storage
+        // The storage is guaranteed to be properly aligned by alignas(max_align<Types...>::value)
+        T* source_ptr = fl::bit_cast_ptr<T>(&other._storage[0]);
+        new (storage) T(fl::move(*source_ptr));
     }
 
     // –– everything below here (type_traits, construct<T>, type_to_tag,

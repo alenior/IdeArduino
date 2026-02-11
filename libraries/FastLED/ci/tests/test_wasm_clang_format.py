@@ -1,17 +1,19 @@
+# pyright: reportUnknownMemberType=false
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
 
-from ci.paths import PROJECT_ROOT
+from ci.util.paths import PROJECT_ROOT
 
-NUM_WORKERS = (os.cpu_count() or 1) * 4
+
+NUM_WORKERS = 1 if os.environ.get("NO_PARALLEL") else (os.cpu_count() or 1) * 4
 
 
 WASM_ROOT = PROJECT_ROOT / "src" / "platforms" / "wasm"
 
 
 class TestMissingPragmaOnce(unittest.TestCase):
-
     def check_file(self, file_path: str) -> list[str]:
         """Check if a header file has #pragma once directive or if a cpp file incorrectly has it."""
         failings: list[str] = []
@@ -29,7 +31,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
         return failings
 
     def test_esm_asm_and_clang_format(self) -> None:
-        files_to_check = []
+        files_to_check: List[str] = []
         current_dir = None
 
         # Collect files to check
@@ -48,7 +50,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
         print(f"Found {len(files_to_check)} files to check")
 
         # Process files in parallel
-        all_failings = []
+        all_failings: List[str] = []
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
             futures = [
                 executor.submit(self.check_file, file_path)

@@ -10,6 +10,47 @@ drawing to a rectangular grid, and then mapping that to a corkscrew.
 However, to make sure the above mapping works correctly, we have
 to test that the forward mapping works correctly first.
 
+NEW: ScreenMap Support
+=====================
+You can now create a ScreenMap directly from a Corkscrew, which maps
+each LED index to its exact position on the cylindrical surface.
+This is useful for web interfaces and visualization:
+
+Example usage:
+```cpp
+// Create a corkscrew
+Corkscrew corkscrew(totalTurns, numLeds);
+
+// Create ScreenMap with 0.5cm LED diameter
+fl::ScreenMap screenMap = corkscrew.toScreenMap(0.5f);
+
+// Use with FastLED controller for web visualization
+controller->setScreenMap(screenMap);
+```
+
+NEW: Rectangular Buffer Support
+===============================
+You can now draw into a rectangular fl::Leds grid and read that 
+into the corkscrew's internal buffer for display:
+
+Example usage:
+```cpp
+// Create a rectangular grid to draw into
+CRGB grid_buffer[width * height];
+fl::Leds grid(grid_buffer, width, height);
+
+// Draw your 2D patterns into the grid
+grid(x, y) = CRGB::Red;  // etc.
+
+// Draw patterns on the corkscrew's surface and map to LEDs
+auto& surface = corkscrew.surface();
+// Draw your patterns on the surface, then call draw() to map to LEDs
+corkscrew.draw();
+
+// Access the LED pixel data
+auto ledData = corkscrew.data();  // Or corkscrew.rawData() for pointer
+// The LED data now contains the corkscrew mapping of your patterns
+```
 */
 
 #include "fl/assert.h"
@@ -28,10 +69,7 @@ using namespace fl;
 #define PIN_DATA 9
 
 #define NUM_LEDS 288
-#define CORKSCREW_TOTAL_LENGTH 100
-#define CORKSCREW_TOTAL_HEIGHT 23.25 // when height = 0, it's a circle.
-                                     // wrapped up over 19 turns
-#define CORKSCREW_TURNS 19           // Default to 19 turns
+#define CORKSCREW_TURNS 19       // Default to 19 turns
 
 // #define CM_BETWEEN_LEDS 1.0 // 1cm between LEDs
 // #define CM_LED_DIAMETER 0.5 // 0.5cm LED diameter
@@ -44,19 +82,14 @@ UISlider speed("Speed", 0.1f, 0.01f, 1.0f, 0.01f);
 
 UICheckbox allWhite("All White", false);
 UICheckbox splatRendering("Splat Rendering", true);
+UICheckbox cachingEnabled("Enable Tile Caching", true);
 
 // CRGB leds[NUM_LEDS];
 
 // Tested on a 288 led (2x 144 max density led strip) with 19 turns
-// with 23.25cm height, 19 turns, and ~15.5 LEDs per turn.
-Corkscrew::Input corkscrewInput(CORKSCREW_TOTAL_LENGTH, CORKSCREW_TOTAL_HEIGHT,
-                                CORKSCREW_TURNS, // Default to 19 turns
-                                NUM_LEDS,        // Default to dense 144 leds.
-                                0 // offset to account for gaps between segments
-);
-
-// Corkscrew::State corkscrewMap = fl::Corkscrew::generateMap(corkscrewInput);
-Corkscrew corkscrew(corkscrewInput);
+// Auto-calculates optimal grid dimensions from turns and LEDs
+Corkscrew corkscrew(CORKSCREW_TURNS, // 19 turns
+                    NUM_LEDS);        // 288 leds
 
 // Create a corkscrew with:
 // - 30cm total length (300mm)
@@ -71,8 +104,8 @@ fl::ScreenMap screenMap;
 fl::Grid<CRGB> frameBuffer;
 
 void setup() {
-    int width = corkscrew.cylinder_width();
-    int height = corkscrew.cylinder_height();
+    int width = corkscrew.cylinderWidth();
+    int height = corkscrew.cylinderHeight();
 
     frameBuffer.reset(width, height);
     XYMap xyMap = XYMap::constructRectangularGrid(width, height, 0);
@@ -83,11 +116,20 @@ void setup() {
     CLEDController *controller =
         &FastLED.addLeds<WS2812, 3, BGR>(leds, num_leds);
 
-    fl::ScreenMap screenMap = xyMap.toScreenMap();
-    screenMap.setDiameter(.2f);
+    // NEW: Create ScreenMap directly from Corkscrew using toScreenMap()
+    // This maps each LED index to its exact position on the cylindrical surface
+    fl::ScreenMap corkscrewScreenMap = corkscrew.toScreenMap(0.2f);
+    
+    // Alternative: Create ScreenMap from rectangular XYMap (old way)
+    // fl::ScreenMap screenMap = xyMap.toScreenMap();
+    // screenMap.setDiameter(.2f);
 
-    // Set the screen map for the controller
-    controller->setScreenMap(screenMap);
+    // Set the corkscrew screen map for the controller
+    // This allows the web interface to display the actual corkscrew shape
+    controller->setScreenMap(corkscrewScreenMap);
+    
+    // Initialize caching based on UI setting
+    corkscrew.setCachingEnabled(cachingEnabled.value());
 }
 
 void loop() {
@@ -96,6 +138,13 @@ void loop() {
     pos += speed.value();
     if (pos > corkscrew.size() - 1) {
         pos = 0; // Reset to the beginning
+    }
+
+    // Update caching setting if it changed
+    static bool lastCachingState = cachingEnabled.value();
+    if (lastCachingState != cachingEnabled.value()) {
+        corkscrew.setCachingEnabled(cachingEnabled.value());
+        lastCachingState = cachingEnabled.value();
     }
 
     if (allWhite) {
@@ -111,7 +160,7 @@ void loop() {
         for (int dx = 0; dx < 2; ++dx) {
             for (int dy = 0; dy < 2; ++dy) {
                 auto data = pos_tile.at(dx, dy);
-                vec2i16 wrapped_pos = data.first; // Already wrapped position
+                vec2<u16> wrapped_pos = data.first; // Already wrapped position
                 uint8_t alpha = data.second;      // Alpha value
 
                 if (alpha > 0) { // Only draw if there's some alpha
@@ -123,8 +172,8 @@ void loop() {
         }
     } else {
         // None splat rendering, looks aweful.
-        vec2f pos_vec2f = corkscrew.at_exact(pos);
-        vec2i16 pos_i16 = vec2i16(round(pos_vec2f.x), round(pos_vec2f.y));
+        vec2f pos_vec2f = corkscrew.at_no_wrap(pos);
+        vec2<u16> pos_i16 = vec2<u16>(round(pos_vec2f.x), round(pos_vec2f.y));
         // Now map the cork screw position to the cylindrical buffer that we
         // will draw.
         frameBuffer.at(pos_i16.x, pos_i16.y) =

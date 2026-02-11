@@ -20,7 +20,7 @@ void loop() {
 }
 #else
 
-#include "FastLED.h"
+
 #include "Arduino.h"
 
 #include "fx/2d/noisepalette.h"

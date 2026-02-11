@@ -7,10 +7,10 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "fl/upscale.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/vector.h"
 #include "fl/xymap.h"
 #include "fx/fx2d.h"
@@ -43,13 +43,13 @@ FASTLED_SMART_PTR(ScaleUp);
 // Uses bilearn filtering to double the size of the grid.
 class ScaleUp : public Fx2d {
   public:
-    ScaleUp(XYMap xymap, Fx2dPtr fx);
+    ScaleUp(const XYMap& xymap, Fx2dPtr fx);
     void draw(DrawContext context) override;
 
     void expand(const CRGB *input, CRGB *output, uint16_t width,
-                uint16_t height, XYMap mXyMap);
+                uint16_t height, const XYMap& mXyMap);
 
-    fl::Str fxName() const override { return "scale_up"; }
+    fl::string fxName() const override { return "scale_up"; }
 
   private:
     // No expansion needed. Also useful for debugging.

@@ -1,8 +1,8 @@
 
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/ui.h"
 
 #include "fl/assert.h"

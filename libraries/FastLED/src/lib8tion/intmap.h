@@ -5,7 +5,7 @@
 
 #include "fl/namespace.h"
 #include "lib8static.h"
-#include <stdint.h>
+#include "fl/stdint.h"
 
 FASTLED_NAMESPACE_BEGIN
 
@@ -24,6 +24,10 @@ FASTLED_NAMESPACE_BEGIN
 
 LIB8STATIC_ALWAYS_INLINE uint16_t map8_to_16(uint8_t x) {
     return uint16_t(x) * 0x101;
+}
+
+LIB8STATIC_ALWAYS_INLINE uint32_t map16_to_32(uint16_t x) {
+    return uint32_t(x) * 0x10001;
 }
 
 // map16_to_8: map 16-bit values to 8-bit values

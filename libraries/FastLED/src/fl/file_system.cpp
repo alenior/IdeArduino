@@ -1,12 +1,18 @@
 #include "fl/file_system.h"
 #include "fl/unused.h"
 #include "fl/warn.h"
+#include "fl/compiler_control.h"
+#include "fl/has_include.h"
 
 #ifdef __EMSCRIPTEN__
 #include "platforms/wasm/fs_wasm.h"
-#elif __has_include(<SD.h>)
-// work in progress.
-// #include "platforms/fs_sdcard_arduino.hpp"
+#define FASTLED_HAS_SDCARD 1
+#elif FL_HAS_INCLUDE(<SD.h>) && FL_HAS_INCLUDE(<fs.h>)
+// Include Arduino SD card implementation when SD library is available
+#include "platforms/fs_sdcard_arduino.hpp"
+#define FASTLED_HAS_SDCARD 1
+#else
+#define FASTLED_HAS_SDCARD 0
 #endif
 
 #include "fl/json.h"
@@ -22,15 +28,15 @@ class NullFileHandle : public FileHandle {
     ~NullFileHandle() override {}
 
     bool available() const override { return false; }
-    size_t size() const override { return 0; }
-    size_t read(uint8_t *dst, size_t bytesToRead) override {
+    fl::size size() const override { return 0; }
+    fl::size read(u8 *dst, fl::size bytesToRead) override {
         FASTLED_UNUSED(dst);
         FASTLED_UNUSED(bytesToRead);
         return 0;
     }
-    size_t pos() const override { return 0; }
+    fl::size pos() const override { return 0; }
     const char *path() const override { return "NULL FILE HANDLE"; }
-    bool seek(size_t pos) override {
+    bool seek(fl::size pos) override {
         FASTLED_UNUSED(pos);
         return false;
     }
@@ -40,8 +46,6 @@ class NullFileHandle : public FileHandle {
         return false;
     }
 };
-
-using namespace fl;
 
 class NullFileSystem : public FsImpl {
   public:
@@ -62,7 +66,8 @@ class NullFileSystem : public FsImpl {
 
     FileHandlePtr openRead(const char *_path) override {
         FASTLED_UNUSED(_path);
-        FileHandlePtr out = FileHandlePtr::TakeOwnership(new NullFileHandle());
+        fl::shared_ptr<NullFileHandle> ptr = fl::make_shared<NullFileHandle>();
+        FileHandlePtr out = ptr;
         return out;
     }
 };
@@ -85,7 +90,7 @@ bool FileSystem::begin(FsImplPtr platform_filesystem) {
     return true;
 }
 
-size_t FileHandle::bytesLeft() const { return size() - pos(); }
+fl::size FileHandle::bytesLeft() const { return size() - pos(); }
 
 FileSystem::FileSystem() : mFs() {}
 
@@ -95,17 +100,20 @@ void FileSystem::end() {
     }
 }
 
-bool FileSystem::readJson(const char *path, JsonDocument *doc) {
-    Str text;
+bool FileSystem::readJson(const char *path, Json *doc) {
+    string text;
     if (!readText(path, &text)) {
         return false;
     }
-    return parseJson(text.c_str(), doc);
+    
+    // Parse using the new Json class
+    *doc = fl::Json::parse(text);
+    return !doc->is_null();
 }
 
 bool FileSystem::readScreenMaps(const char *path,
-                                FixedMap<Str, ScreenMap, 16> *out, Str *error) {
-    Str text;
+                                fl::fl_map<string, ScreenMap> *out, string *error) {
+    string text;
     if (!readText(path, &text)) {
         FASTLED_WARN("Failed to read file: " << path);
         if (error) {
@@ -114,7 +122,7 @@ bool FileSystem::readScreenMaps(const char *path,
         }
         return false;
     }
-    Str err;
+    string err;
     bool ok = ScreenMap::ParseJson(text.c_str(), out, &err);
     if (!ok) {
         FASTLED_WARN("Failed to parse screen map: " << err.c_str());
@@ -125,8 +133,8 @@ bool FileSystem::readScreenMaps(const char *path,
 }
 
 bool FileSystem::readScreenMap(const char *path, const char *name,
-                               ScreenMap *out, Str *error) {
-    Str text;
+                               ScreenMap *out, string *error) {
+    string text;
     if (!readText(path, &text)) {
         FASTLED_WARN("Failed to read file: " << path);
         if (error) {
@@ -135,7 +143,7 @@ bool FileSystem::readScreenMap(const char *path, const char *name,
         }
         return false;
     }
-    Str err;
+    string err;
     bool ok = ScreenMap::ParseJson(text.c_str(), name, out, &err);
     if (!ok) {
         FASTLED_WARN("Failed to parse screen map: " << err.c_str());
@@ -150,30 +158,30 @@ void FileSystem::close(FileHandlePtr file) { mFs->close(file); }
 FileHandlePtr FileSystem::openRead(const char *path) {
     return mFs->openRead(path);
 }
-Video FileSystem::openVideo(const char *path, size_t pixelsPerFrame, float fps,
-                            size_t nFrameHistory) {
+Video FileSystem::openVideo(const char *path, fl::size pixelsPerFrame, float fps,
+                            fl::size nFrameHistory) {
     Video video(pixelsPerFrame, fps, nFrameHistory);
     FileHandlePtr file = openRead(path);
     if (!file) {
-        video.setError(fl::Str("Could not open file: ").append(path));
+        video.setError(fl::string("Could not open file: ").append(path));
         return video;
     }
     video.begin(file);
     return video;
 }
 
-bool FileSystem::readText(const char *path, fl::Str *out) {
+bool FileSystem::readText(const char *path, fl::string *out) {
     FileHandlePtr file = openRead(path);
     if (!file) {
         FASTLED_WARN("Failed to open file: " << path);
         return false;
     }
-    size_t size = file->size();
+    fl::size size = file->size();
     out->reserve(size + out->size());
     bool wrote = false;
     while (file->available()) {
-        uint8_t buf[64];
-        size_t n = file->read(buf, sizeof(buf));
+        u8 buf[64];
+        fl::size n = file->read(buf, sizeof(buf));
         // out->append(buf, n);
         out->append((const char *)buf, n);
         wrote = true;
@@ -185,10 +193,14 @@ bool FileSystem::readText(const char *path, fl::Str *out) {
 } // namespace fl
 
 namespace fl {
-__attribute__((weak)) FsImplPtr make_sdcard_filesystem(int cs_pin) {
+#if !FASTLED_HAS_SDCARD
+// Weak fallback implementation when SD library is not available
+FL_LINK_WEAK FsImplPtr make_sdcard_filesystem(int cs_pin) {
     FASTLED_UNUSED(cs_pin);
-    FsImplPtr out = FsImplPtr::TakeOwnership(new NullFileSystem());
+    fl::shared_ptr<NullFileSystem> ptr = fl::make_shared<NullFileSystem>();
+    FsImplPtr out = ptr;
     return out;
 }
+#endif
 
 } // namespace fl

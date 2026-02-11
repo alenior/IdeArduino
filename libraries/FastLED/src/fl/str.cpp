@@ -1,5 +1,5 @@
 #include <stdlib.h>
-
+#include <string.h>  // ok include - for strcmp
 #include "fl/str.h"
 
 #include "crgb.h"
@@ -7,6 +7,10 @@
 #include "fl/namespace.h"
 #include "fl/unused.h"
 #include "fl/xymap.h"
+#include "fl/json.h"
+#include "fl/tile2x2.h"
+#include "fl/compiler_control.h"
+// UI dependency moved to separate compilation unit to break dependency chain
 
 #ifdef FASTLED_TESTING
 #include <cstdio> // ok include
@@ -14,15 +18,19 @@
 
 namespace fl {
 
+// Define static const member for npos (only for string class)
+const fl::size string::npos;
+
+// Explicit template instantiations for commonly used sizes
+template class StrN<64>;
+
 namespace string_functions {
 
 static void ftoa(float value, char *buffer, int precision = 2) {
 
-    FASTLED_UNUSED(precision);
-
 #ifdef FASTLED_TESTING
-    // use sprintf during testing
-    sprintf(buffer, "%f", value);
+    // use snprintf during testing with precision
+    snprintf(buffer, 64, "%.*f", precision, value);
     return;
 
 #else
@@ -33,7 +41,7 @@ static void ftoa(float value, char *buffer, int precision = 2) {
     }
 
     // Extract integer part
-    uint32_t intPart = (uint32_t)value;
+    u32 intPart = (u32)value;
 
     // Convert integer part to string (reversed)
     char intBuf[12]; // Enough for 32-bit integers
@@ -51,7 +59,7 @@ static void ftoa(float value, char *buffer, int precision = 2) {
     *buffer++ = '.'; // Decimal point
 
     // Extract fractional part
-    float fracPart = value - (uint32_t)value;
+    float fracPart = value - (u32)value;
     for (int j = 0; j < precision; ++j) {
         fracPart *= 10.0f;
         int digit = (int)fracPart;
@@ -97,14 +105,60 @@ static int itoa(int value, char *sp, int radix) {
     return len;
 }
 
-static float atoff(const char *str, size_t len) {
+static int utoa32(uint32_t value, char *sp, int radix) {
+    char tmp[16]; // be careful with the length of the buffer
+    char *tp = tmp;
+    int i;
+    uint32_t v = value;
+
+    while (v || tp == tmp) {
+        i = v % radix;
+        v = radix ? v / radix : 0;
+        if (i < 10)
+            *tp++ = i + '0';
+        else
+            *tp++ = i + 'a' - 10;
+    }
+
+    int len = tp - tmp;
+
+    while (tp > tmp)
+        *sp++ = *--tp;
+
+    return len;
+}
+
+static int utoa64(uint64_t value, char *sp, int radix) {
+    char tmp[32]; // larger buffer for 64-bit values
+    char *tp = tmp;
+    int i;
+    uint64_t v = value;
+
+    while (v || tp == tmp) {
+        i = v % radix;
+        v = radix ? v / radix : 0;
+        if (i < 10)
+            *tp++ = i + '0';
+        else
+            *tp++ = i + 'a' - 10;
+    }
+
+    int len = tp - tmp;
+
+    while (tp > tmp)
+        *sp++ = *--tp;
+
+    return len;
+}
+
+static float atoff(const char *str, fl::size len) {
     float result = 0.0f;   // The resulting number
     float sign = 1.0f;     // Positive or negative
     float fraction = 0.0f; // Fractional part
     float divisor = 1.0f;  // Divisor for the fractional part
     int isFractional = 0;  // Whether the current part is fractional
 
-    size_t pos = 0; // Current position in the string
+    fl::size pos = 0; // Current position in the string
 
     // Handle empty input
     if (len == 0) {
@@ -153,10 +207,30 @@ static float atoff(const char *str, size_t len) {
 
 } // namespace string_functions
 
-void StringFormatter::append(int32_t val, StrN<64> *dst) {
+void StringFormatter::append(i32 val, StrN<64> *dst) {
     char buf[63] = {0};
     string_functions::itoa(val, buf, 10);
     dst->write(buf, strlen(buf));
+}
+
+void StringFormatter::append(u32 val, StrN<64> *dst) {
+    char buf[63] = {0};
+    string_functions::utoa32(val, buf, 10);
+    dst->write(buf, strlen(buf));
+}
+
+void StringFormatter::append(uint64_t val, StrN<64> *dst) {
+    char buf[63] = {0};
+    string_functions::utoa64(val, buf, 10);
+    dst->write(buf, strlen(buf));
+}
+
+void StringFormatter::append(i16 val, StrN<64> *dst) {
+    append(static_cast<i32>(val), dst);
+}
+
+void StringFormatter::append(u16 val, StrN<64> *dst) {
+    append(static_cast<u32>(val), dst);
 }
 StringHolder::StringHolder(const char *str) {
     mLength = strlen(str);   // Don't include null terminator in length
@@ -165,7 +239,7 @@ StringHolder::StringHolder(const char *str) {
     memcpy(mData, str, mLength);
     mData[mLength] = '\0';
 }
-StringHolder::StringHolder(size_t length) {
+StringHolder::StringHolder(fl::size length) {
     mData = (char *)malloc(length + 1);
     if (mData) {
         mLength = length;
@@ -176,7 +250,7 @@ StringHolder::StringHolder(size_t length) {
     mCapacity = mLength;
 }
 
-StringHolder::StringHolder(const char *str, size_t length) {
+StringHolder::StringHolder(const char *str, fl::size length) {
     mData = (char *)malloc(length + 1);
     if (mData) {
         mLength = length;
@@ -192,7 +266,7 @@ StringHolder::~StringHolder() {
     free(mData); // Release the memory
 }
 
-void StringHolder::grow(size_t newLength) {
+void StringHolder::grow(fl::size newLength) {
     if (newLength <= mCapacity) {
         // New length must be greater than current length
         mLength = newLength;
@@ -219,11 +293,24 @@ void StringHolder::grow(size_t newLength) {
     }
 }
 
-float StringFormatter::parseFloat(const char *str, size_t len) {
+float StringFormatter::parseFloat(const char *str, fl::size len) {
     return string_functions::atoff(str, len);
 }
 
-Str &Str::append(const FFTBins &str) {
+int StringFormatter::parseInt(const char *str, fl::size len) {
+    float f = parseFloat(str, len);
+    return static_cast<int>(f);
+}
+
+int StringFormatter::parseInt(const char *str) {
+    return parseInt(str, strlen(str));
+}
+
+int string::strcmp(const string& a, const string& b) {
+    return ::strcmp(a.c_str(), b.c_str());
+}
+
+string &string::append(const FFTBins &str) {
     append("\n FFTImpl Bins:\n  ");
     append(str.bins_raw);
     append("\n");
@@ -233,7 +320,7 @@ Str &Str::append(const FFTBins &str) {
     return *this;
 }
 
-Str &Str::append(const XYMap &map) {
+string &string::append(const XYMap &map) {
     append("XYMap(");
     append(map.getWidth());
     append(",");
@@ -242,7 +329,34 @@ Str &Str::append(const XYMap &map) {
     return *this;
 }
 
-void Str::swap(Str &other) {
+string &string::append(const Tile2x2_u8_wrap &tile) {
+    Tile2x2_u8_wrap::Entry data[4] = {
+        tile.at(0, 0),
+        tile.at(0, 1),
+        tile.at(1, 0),
+        tile.at(1, 1),
+    };
+
+    append("Tile2x2_u8_wrap(");
+    for (int i = 0; i < 4; i++) {
+        vec2<u16> pos = data[i].first;
+        u8 alpha = data[i].second;
+        append("(");
+        append(pos.x);
+        append(",");
+        append(pos.y);
+        append(",");
+        append(alpha);
+        append(")");
+        if (i < 3) {
+            append(",");
+        }
+    }
+    append(")");
+    return *this;
+}
+
+void string::swap(string &other) {
     if (this != &other) {
         fl::swap(mLength, other.mLength);
         char temp[FASTLED_STR_INLINED_SIZE];
@@ -253,7 +367,7 @@ void Str::swap(Str &other) {
     }
 }
 
-void Str::compileTimeAssertions() {
+void string::compileTimeAssertions() {
     static_assert(FASTLED_STR_INLINED_SIZE > 0,
                   "FASTLED_STR_INLINED_SIZE must be greater than 0");
     static_assert(FASTLED_STR_INLINED_SIZE == kStrInlineSize,
@@ -261,7 +375,7 @@ void Str::compileTimeAssertions() {
                   "must be through a build define and not an include define.");
 }
 
-Str &Str::append(const CRGB &rgb) {
+string &string::append(const CRGB &rgb) {
     append("CRGB(");
     append(rgb.r);
     append(",");
@@ -276,6 +390,34 @@ void StringFormatter::appendFloat(const float &val, StrN<64> *dst) {
     char buf[64] = {0};
     string_functions::ftoa(val, buf);
     dst->write(buf, strlen(buf));
+}
+
+void StringFormatter::appendFloat(const float &val, StrN<64> *dst, int precision) {
+    char buf[64] = {0};
+    string_functions::ftoa(val, buf, precision);
+    dst->write(buf, strlen(buf));
+}
+
+// JsonUiInternal append implementation moved to str_ui.cpp to break dependency chain
+
+// JSON type append implementations
+// NOTE: These use forward declarations to avoid circular dependency with json.h
+string &string::append(const JsonValue& val) {
+    // Use the JsonValue's to_string method if available
+    // For now, just append a placeholder to avoid compilation errors
+    FL_UNUSED(val);
+    append("<JsonValue>");
+    return *this;
+}
+
+string &string::append(const Json& val) {
+    // Use the Json's to_string method if available  
+    // For now, just append a placeholder to avoid compilation errors
+    //append("<Json>");
+    append("Json(");
+    append(val.to_string());
+    append(")");
+    return *this;
 }
 
 } // namespace fl

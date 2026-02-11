@@ -2,11 +2,13 @@
 
 #include "fl/fft.h"
 #include "fl/math.h"
-#include "fl/ptr.h"
-#include "fl/slice.h"
+#include "fl/memory.h"
+#include "fl/span.h"
 #include "fl/vector.h"
+#include "fl/int.h"
 #include <math.h>
-#include <stdint.h>
+#include "fl/stdint.h"
+#include "fl/span.h"
 
 namespace fl {
 
@@ -19,28 +21,35 @@ FASTLED_SMART_PTR(AudioSampleImpl);
 // semantics.
 class AudioSample {
   public:
-    using VectorPCM = fl::vector<int16_t>;
+    using VectorPCM = fl::vector<fl::i16>;
     using const_iterator = VectorPCM::const_iterator;
     AudioSample() {}
     AudioSample(const AudioSample &other) : mImpl(other.mImpl) {}
     AudioSample(AudioSampleImplPtr impl) : mImpl(impl) {}
+    ~AudioSample();
+    
+    // Constructor that takes raw audio data and handles pooling internally
+    AudioSample(fl::span<const fl::i16> span, fl::u32 timestamp = 0);
+
+
     AudioSample &operator=(const AudioSample &other);
     bool isValid() const { return mImpl != nullptr; }
 
-    size_t size() const;
+    fl::size size() const;
     // Raw pcm levels.
     const VectorPCM &pcm() const;
     // Zero crossing factor between 0.0f -> 1.0f, detects "hiss"
     // and sounds like cloths rubbing. Useful for sound analysis.
     float zcf() const;
     float rms() const;
+    fl::u32 timestamp() const;  // Timestamp when sample became valid (millis)
 
-    void fft(FFTBins *out);
+    void fft(FFTBins *out) const;
 
     const_iterator begin() const { return pcm().begin(); }
     const_iterator end() const { return pcm().end(); }
-    const int16_t &at(size_t i) const;
-    const int16_t &operator[](size_t i) const;
+    const fl::i16 &at(fl::size i) const;
+    const fl::i16 &operator[](fl::size i) const;
     operator bool() const { return isValid(); }
     bool operator==(const AudioSample &other) const;
     bool operator!=(const AudioSample &other) const;
@@ -61,11 +70,11 @@ class SoundLevelMeter {
     /// @param spl_floor  The SPL (dB SPL) that corresponds to your true
     /// noise-floor.
     /// @param smoothing_alpha  [0…1] how quickly to adapt floor; 0=instant min.
-    SoundLevelMeter(double spl_floor = 33.0f, double smoothing_alpha = 0.0);
+    SoundLevelMeter(double spl_floor = 33.0, double smoothing_alpha = 0.0);
 
     /// Process a block of int16 PCM samples.
-    void processBlock(const int16_t *samples, size_t count);
-    void processBlock(fl::Slice<const int16_t> samples) {
+    void processBlock(const fl::i16 *samples, fl::size count);
+            void processBlock(fl::span<const fl::i16> samples) {
         processBlock(samples.data(), samples.size());
     }
 
@@ -97,16 +106,28 @@ class SoundLevelMeter {
 };
 
 // Implementation details.
-class AudioSampleImpl : public fl::Referent {
+class AudioSampleImpl {
   public:
-    using VectorPCM = fl::vector<int16_t>;
+    using VectorPCM = fl::vector<fl::i16>;
     ~AudioSampleImpl() {}
-    template <typename It> void assign(It begin, It end) {
+    // template <typename It> void assign(It begin, It end) {
+    //     assign(begin, end, 0);  // Default timestamp to 0
+    // }
+    template <typename It> void assign(It begin, It end, fl::u32 timestamp) {
         mSignedPcm.assign(begin, end);
+        mTimestamp = timestamp;
         // calculate zero crossings
         initZeroCrossings();
     }
     const VectorPCM &pcm() const { return mSignedPcm; }
+    fl::u32 timestamp() const { return mTimestamp; }
+    
+    // For object pool - reset internal state for reuse
+    void reset() {
+        mSignedPcm.clear();
+        mZeroCrossings = 0;
+        mTimestamp = 0;
+    }
 
     // "Zero crossing factor". High values > .4 indicate hissing
     // sounds. For example a microphone rubbing against a clothing.
@@ -118,18 +139,18 @@ class AudioSampleImpl : public fl::Referent {
     //
     // Returns: a value -> [0.0f, 1.0f)
     float zcf() const {
-        const size_t n = pcm().size();
+        const fl::size n = pcm().size();
         if (n < 2) {
             return 0.f;
         }
-        return float(mZeroCrossings) / (n - 1);
+        return float(mZeroCrossings) / static_cast<float>(n - 1);
     }
 
   private:
     void initZeroCrossings() {
         mZeroCrossings = 0;
         if (mSignedPcm.size() > 1) {
-            for (size_t i = 1; i < mSignedPcm.size(); ++i) {
+            for (fl::size i = 1; i < mSignedPcm.size(); ++i) {
                 const bool crossed =
                     (mSignedPcm[i - 1] < 0 && mSignedPcm[i] >= 0) ||
                     (mSignedPcm[i - 1] >= 0 && mSignedPcm[i] < 0);
@@ -141,7 +162,8 @@ class AudioSampleImpl : public fl::Referent {
     }
 
     VectorPCM mSignedPcm;
-    int16_t mZeroCrossings = 0;
+    fl::i16 mZeroCrossings = 0;
+    fl::u32 mTimestamp = 0;
 };
 
 } // namespace fl

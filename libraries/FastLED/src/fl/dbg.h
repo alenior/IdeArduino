@@ -1,6 +1,18 @@
 #pragma once
 
 #include "fl/strstream.h"
+#include "fl/sketch_macros.h"
+#include "fl/int.h"
+#include "fl/stdint.h"
+
+// Forward declaration to avoid pulling in fl/io.h and causing fl/io.cpp to be compiled
+// This prevents ~5KB memory bloat for simple applications
+#ifndef FL_DBG_PRINTLN_DECLARED
+#define FL_DBG_PRINTLN_DECLARED
+namespace fl {
+    void println(const char* str);
+}
+#endif
 
 namespace fl {
 // ".build/src/fl/dbg.h" -> "src/fl/dbg.h"
@@ -27,45 +39,29 @@ inline const char *fastled_file_offset(const char *file) {
 }
 } // namespace fl
 
-#ifdef __EMSCRIPTEN__
-#define FASTLED_DBG_USE_PRINTF 1
+#if __EMSCRIPTEN__ || !defined(RELEASE) || defined(FASTLED_TESTING)
+#define FASTLED_FORCE_DBG 1
 #endif
 
-#ifndef FASTLED_DBG_USE_PRINTF
-#if defined(DEBUG) &&                                                          \
-    (defined(__IMXRT1062__) || defined(ESP32) || defined(FASTLED_TESTING))
-#define FASTLED_DBG_USE_PRINTF 1
+// Debug printing: Enable only when explicitly requested to avoid ~5KB memory bloat
+#if !defined(FASTLED_FORCE_DBG) || !SKETCH_HAS_LOTS_OF_MEMORY
+// By default, debug printing is disabled to prevent memory bloat in simple applications
+#define FASTLED_HAS_DBG 0
+#define _FASTLED_DGB(X) do { if (false) { fl::println(""); } } while(0)  // No-op that handles << operator
 #else
-#define FASTLED_DBG_USE_PRINTF 0
-#endif
-#endif
-
-#if FASTLED_DBG_USE_PRINTF
+// Explicit debug mode enabled - uses fl::println()
 #define FASTLED_HAS_DBG 1
-#include <stdio.h> // ok include
-namespace fl {}    // namespace fl
 #define _FASTLED_DGB(X)                                                        \
-    printf("%s", (fl::StrStream() << (fl::fastled_file_offset(__FILE__))       \
-                                  << "(" << __LINE__ << "): " << X << "\n")    \
-                     .c_str())
+    fl::println(                                                               \
+        (fl::StrStream() << (fl::fastled_file_offset(__FILE__))                \
+                         << "(" << int(__LINE__) << "): " << X)                     \
+            .c_str())
+#endif
 
 #define FASTLED_DBG(X) _FASTLED_DGB(X)
-#endif
-
-#ifndef FASTLED_HAS_DBG
-// FASTLED_DBG is a macro that can be defined to enable debug printing.
-#define FASTLED_DBG(X) (fl::FakeStrStream() << X)
-#endif
 
 #ifndef FASTLED_DBG_IF
-#ifdef FASTLED_HAS_DBG
 #define FASTLED_DBG_IF(COND, MSG)                                              \
     if (COND)                                                                  \
     FASTLED_DBG(MSG)
-#else
-#define FASTLED_DBG_IF(COND, MSG)                                              \
-    while (false && (COND)) {                                                  \
-        FASTLED_DBG(MSG);                                                      \
-    }
-#endif // FASTLED_HAS_DBG
 #endif // FASTLED_DBG_IF

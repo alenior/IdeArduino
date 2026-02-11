@@ -1,18 +1,52 @@
 #pragma once
 
+#include "fl/has_include.h"
+
+
+#if FL_HAS_INCLUDE(<math.h>)
+#include <math.h>  // for early definitions of M_PI and other math macros.
+#endif // FL_HAS_INCLUDE(<math.h>)
+
+
+#include "fl/compiler_control.h"
+#include "fl/type_traits.h"
+
 namespace fl {
+
+// Fun fact, we can't define any function by the name of min,max,abs because
+// on some platforms these are macros. Therefore we can only use fl_min, fl_max, fl_abs.
 // This is needed for math macro ABS to work optimally.
 template <typename T> inline T fl_abs(T value) {
     return value < 0 ? -value : value;
 }
+
+FL_DISABLE_WARNING_PUSH
+FL_DISABLE_WARNING(sign-compare)
+FL_DISABLE_WARNING_FLOAT_CONVERSION
+FL_DISABLE_WARNING_SIGN_CONVERSION
+FL_DISABLE_WARNING_IMPLICIT_INT_CONVERSION
+FL_DISABLE_WARNING_FLOAT_CONVERSION
+
+
+// Template functions for MIN and MAX to avoid statement repetition
+// Returns the most promotable type between the two arguments
+template <typename T, typename U> inline common_type_t<T, U> fl_min(T a, U b) {
+    return (a < b) ? a : b;
+}
+
+template <typename T, typename U> inline common_type_t<T, U> fl_max(T a, U b) {
+    return (a > b) ? a : b;
+}
+
+FL_DISABLE_WARNING_POP
 } // namespace fl
 
 #ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MAX(a, b) fl::fl_max(a, b)
 #endif
 
 #ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MIN(a, b) fl::fl_min(a, b)
 #endif
 
 #ifndef ABS

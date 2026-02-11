@@ -1,17 +1,21 @@
-
-
 #include "fl/ui.h"
-#include <stdint.h>
+#include "fl/stdint.h"
+#include "fl/compiler_control.h"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
+FL_DISABLE_WARNING_PUSH
+FL_DISABLE_WARNING(float-equal)
 
 namespace fl {
 
 void UISlider::setValue(float value) {
-
-    if (value != Super::value()) {
-        Super::setValue(value);
+    float oldValue = mImpl.value();
+    if (value != oldValue) {
+        mImpl.setValue(value);
+        // Update the last frame value to keep state consistent
+        mLastFrameValue = value;
+        mLastFramevalueValid = true;
+        // Invoke callbacks to notify listeners (including JavaScript components)
+        mCallbacks.invoke(*this);
     }
 }
 
@@ -78,6 +82,35 @@ void UINumberField::Listener::onBeginFrame() {
     }
 }
 
+void UIDropdown::Listener::onBeginFrame() {
+    UIDropdown &owner = *mOwner;
+    
+    // Check the next button if one is attached
+    bool shouldAdvance = false;
+    if (owner.mNextButton) {
+        if (owner.mNextButton->clicked()) {
+            shouldAdvance = true;
+        }
+    }
+    
+    // If the next button was clicked, advance to the next option
+    if (shouldAdvance) {
+        owner.nextOption();
+        // The option change will be detected below and callbacks will be invoked
+    }
+    
+    if (!owner.mLastFrameValueValid) {
+        owner.mLastFrameValue = owner.as_int();
+        owner.mLastFrameValueValid = true;
+        return;
+    }
+    int value = owner.as_int();
+    if (value != owner.mLastFrameValue) {
+        owner.mCallbacks.invoke(owner);
+        owner.mLastFrameValue = value;
+    }
+}
+
 } // end namespace fl
 
-#pragma GCC diagnostic pop
+FL_DISABLE_WARNING_POP

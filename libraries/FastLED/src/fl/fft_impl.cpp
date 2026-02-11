@@ -6,7 +6,9 @@
 // #include "thirdparty/cq_kernel/kiss_fftr.h"
 // #include "util.h"
 
+#ifndef FASTLED_INTERNAL
 #define FASTLED_INTERNAL 1
+#endif
 
 #include "FastLED.h"
 
@@ -22,7 +24,8 @@
 #include "fl/vector.h"
 #include "fl/warn.h"
 
-// #define SAMPLES IS2_AUDIO_BUFFER_LEN
+#include "fl/memfill.h"
+
 #define AUDIO_SAMPLE_RATE 44100
 #define SAMPLES 512
 #define BANDS 16
@@ -39,7 +42,7 @@ class FFTContext {
   public:
     FFTContext(int samples, int bands, float fmin, float fmax, int sample_rate)
         : m_fftr_cfg(nullptr), m_kernels(nullptr) {
-        memset(&m_cq_cfg, 0, sizeof(m_cq_cfg));
+        fl::memfill(&m_cq_cfg, 0, sizeof(m_cq_cfg));
         m_cq_cfg.samples = samples;
         m_cq_cfg.bands = bands;
         m_cq_cfg.fmin = fmin;
@@ -62,9 +65,9 @@ class FFTContext {
         }
     }
 
-    size_t sampleSize() const { return m_cq_cfg.samples; }
+    fl::size sampleSize() const { return m_cq_cfg.samples; }
 
-    void fft_unit_test(Slice<const int16_t> buffer, FFTBins *out) {
+    void fft_unit_test(span<const i16> buffer, FFTBins *out) {
 
         // FASTLED_ASSERT(512 == m_cq_cfg.samples, "FFTImpl samples mismatch and
         // are still hardcoded to 512");
@@ -80,8 +83,8 @@ class FFTContext {
         const float delta_f = (maxf - minf) / m_cq_cfg.bands;
         // begin transform
         for (int i = 0; i < m_cq_cfg.bands; ++i) {
-            int32_t real = cq[i].r;
-            int32_t imag = cq[i].i;
+            i32 real = cq[i].r;
+            i32 imag = cq[i].i;
             float r2 = float(real * real);
             float i2 = float(imag * imag);
             float magnitude = sqrt(r2 + i2);
@@ -103,7 +106,7 @@ class FFTContext {
         }
     }
 
-    fl::Str info() const {
+    fl::string info() const {
         // Calculate frequency delta
         float delta_f = (m_cq_cfg.fmax - m_cq_cfg.fmin) / m_cq_cfg.bands;
         fl::StrStream ss;
@@ -131,16 +134,16 @@ FFTImpl::FFTImpl(const FFT_Args &args) {
 
 FFTImpl::~FFTImpl() { mContext.reset(); }
 
-fl::Str FFTImpl::info() const {
+fl::string FFTImpl::info() const {
     if (mContext) {
         return mContext->info();
     } else {
         FASTLED_WARN("FFTImpl context is not initialized");
-        return fl::Str();
+        return fl::string();
     }
 }
 
-size_t FFTImpl::sampleSize() const {
+fl::size FFTImpl::sampleSize() const {
     if (mContext) {
         return mContext->sampleSize();
     }
@@ -149,11 +152,11 @@ size_t FFTImpl::sampleSize() const {
 
 FFTImpl::Result FFTImpl::run(const AudioSample &sample, FFTBins *out) {
     auto &audio_sample = sample.pcm();
-    Slice<const int16_t> slice(audio_sample);
+    span<const i16> slice(audio_sample);
     return run(slice, out);
 }
 
-FFTImpl::Result FFTImpl::run(Slice<const int16_t> sample, FFTBins *out) {
+FFTImpl::Result FFTImpl::run(span<const i16> sample, FFTBins *out) {
     if (!mContext) {
         return FFTImpl::Result(false, "FFTImpl context is not initialized");
     }

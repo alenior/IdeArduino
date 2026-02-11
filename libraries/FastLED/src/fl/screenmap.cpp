@@ -16,7 +16,38 @@
 #include "fl/vector.h"
 #include "fl/warn.h"
 
+
 namespace fl {
+
+// Helper function to extract a vector of floats from a JSON array
+fl::vector<float> jsonArrayToFloatVector(const fl::Json& jsonArray) {
+    fl::vector<float> result;
+    
+    if (!jsonArray.has_value() || !jsonArray.is_array()) {
+        return result;
+    }
+    auto begin_float =  jsonArray.begin_array<float>();
+    auto end_float = jsonArray.end_array<float>();
+
+    using T = decltype(*begin_float);
+    static_assert(fl::is_same<T, fl::ParseResult<float>>::value, "Value type must be ParseResult<float>");
+    
+    // Use explicit array iterator style as demonstrated in FEATURE.md
+    // DO NOT CHANGE THIS CODE. FIX THE IMPLIMENTATION IF NECESSARY.
+    for (auto it = begin_float; it != end_float; ++it) {
+        // assert that the value type is ParseResult<float>
+
+        // get the name of the type
+        auto parseResult = *it;
+        if (!parseResult.has_error()) {
+            result.push_back(parseResult.get_value());
+        } else {
+            FL_WARN("jsonArrayToFloatVector: ParseResult<float> has error: " << parseResult.get_error().message);
+        }
+    }
+    
+    return result;
+}
 
 ScreenMap ScreenMap::Circle(int numLeds, float cm_between_leds,
                             float cm_led_diameter, float completion) {
@@ -49,43 +80,135 @@ ScreenMap ScreenMap::Circle(int numLeds, float cm_between_leds,
 }
 
 bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
-                          FixedMap<Str, ScreenMap, 16> *segmentMaps, Str *err) {
-#if !FASTLED_ENABLE_JSON
+                          fl::fl_map<string, ScreenMap> *segmentMaps, string *err) {
+
+#if FASTLED_NO_JSON
+    FL_UNUSED(jsonStrScreenMap);
+    FL_UNUSED(segmentMaps);
+    FL_UNUSED(err);
+    FL_WARN("ScreenMap::ParseJson called with FASTLED_NO_JSON");
     if (err) {
-        *err = "JSON not enabled";
+        *err = "JSON is not supported in this build";
     }
     return false;
 #else
-    JsonDocument doc;
-    Str _err;
+    //FL_WARN_SCREENMAP("ParseJson called with JSON: " << jsonStrScreenMap);
+    
+    string _err;
     if (!err) {
         err = &_err;
     }
 
-    bool ok = parseJson(jsonStrScreenMap, &doc, err);
-    if (!ok) {
-        FASTLED_WARN("Failed to parse json: " << err->c_str());
+    auto jsonDoc = fl::Json::parse(jsonStrScreenMap);
+    if (!jsonDoc.has_value()) {
+        *err = "Failed to parse JSON";
+        FL_WARN("Failed to parse JSON");
         return false;
     }
-    auto map = doc["map"];
-    for (auto kv : map.as<FLArduinoJson::JsonObject>()) {
-        auto segment = kv.value();
-        auto x = segment["x"];
-        auto y = segment["y"];
-        auto obj = segment["diameter"];
-        float diameter = -1.0f;
-        if (obj.is<float>()) {
-            float d = obj.as<float>();
-            if (d > 0.0f) {
-                diameter = d;
+    
+    if (!jsonDoc.is_object()) {
+        *err = "JSON root is not an object";
+        FL_WARN("JSON root is not an object");
+        return false;
+    }
+    
+    // Check if "map" key exists and is an object
+    if (!jsonDoc.contains("map")) {
+        *err = "Missing 'map' key in JSON";
+        FL_WARN("Missing 'map' key in JSON");
+        return false;
+    }
+    
+    // Get the map object
+    auto mapObj = jsonDoc["map"];
+    if (!mapObj.has_value() || !mapObj.is_object()) {
+        *err = "Invalid 'map' object in JSON";
+        FL_WARN("Invalid 'map' object in JSON");
+        return false;
+    }
+    
+    auto jsonMapOpt = mapObj.as_object();
+    if (!jsonMapOpt || jsonMapOpt->empty()) {
+        *err = "Failed to parse map from JSON or map is empty";
+        FL_WARN("Failed to parse map from JSON or map is empty");
+        return false;
+    }
+    
+    auto& jsonMap = *jsonMapOpt;
+
+    
+    for (const auto& kv : jsonMap) {
+        auto name = kv.first;
+
+        
+        // Check that the value is not null before creating Json object
+        if (!kv.second) {
+            *err = "Null value for segment " + name;
+            return false;
+        }
+        
+        // Create Json object directly from shared_ptr
+        fl::Json val(kv.second);
+        if (!val.has_value()) {
+            *err = "Invalid value for segment " + name;
+            return false;
+        }
+        
+        if (!val.is_object()) {
+            *err = "Segment value for " + name + " is not an object";
+            return false;
+        }
+        
+        // Check if x array exists and is actually an array
+        if (!val.contains("x")) {
+            *err = "Missing x array for " + name;
+            return false;
+        }
+        
+        if (!val["x"].has_value() || !val["x"].is_array()) {
+            *err = "Invalid x array for " + name;
+            return false;
+        }
+        
+        // Extract x array using our helper function
+        fl::vector<float> x_array = jsonArrayToFloatVector(val["x"]);
+        
+        // Check if y array exists and is actually an array
+        if (!val.contains("y")) {
+            *err = "Missing y array for " + name;
+            return false;
+        }
+        
+        if (!val["y"].has_value() || !val["y"].is_array()) {
+            *err = "Invalid y array for " + name;
+            return false;
+        }
+        
+        // Extract y array using our helper function
+        fl::vector<float> y_array = jsonArrayToFloatVector(val["y"]);
+        
+        // Get diameter (optional) with default value
+        float diameter = -1.0f; // default value
+        if (val.contains("diameter") && val["diameter"].has_value()) {
+                            auto diameterOpt = val["diameter"].as_float();
+            if (diameterOpt) {
+                diameter = static_cast<float>(*diameterOpt);
             }
         }
-        auto n = x.size();
-        ScreenMap segment_map(n, diameter);
-        for (uint16_t j = 0; j < n; j++) {
-            segment_map.set(j, vec2f{x[j], y[j]});
+
+        auto n = MIN(x_array.size(), y_array.size());
+        if (n != x_array.size() || n != y_array.size()) {
+            if (n != x_array.size()) {
+            }
+            if (n != y_array.size()) {
+            }
         }
-        segmentMaps->insert(kv.key().c_str(), segment_map);
+
+        ScreenMap segment_map(n, diameter);
+        for (size_t i = 0; i < n; i++) {
+            segment_map.set(i, vec2f{x_array[i], y_array[i]});
+        }
+        (*segmentMaps)[name] = fl::move(segment_map);
     }
     return true;
 #endif
@@ -93,14 +216,9 @@ bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
 
 bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
                           const char *screenMapName, ScreenMap *screenmap,
-                          Str *err) {
-#if !FASTLED_ENABLE_JSON
-    if (err) {
-        *err = "JSON not enabled";
-    }
-    return false;
-#else
-    FixedMap<Str, ScreenMap, 16> segmentMaps;
+                          string *err) {
+
+    fl::fl_map<string, ScreenMap> segmentMaps;
     bool ok = ParseJson(jsonStrScreenMap, &segmentMaps, err);
     if (!ok) {
         return false;
@@ -108,82 +226,105 @@ bool ScreenMap::ParseJson(const char *jsonStrScreenMap,
     if (segmentMaps.size() == 0) {
         return false;
     }
-    if (segmentMaps.has(screenMapName)) {
+    if (segmentMaps.contains(screenMapName)) {
         *screenmap = segmentMaps[screenMapName];
         return true;
     }
-    Str _err = "ScreenMap not found: ";
+    string _err = "ScreenMap not found: ";
     _err.append(screenMapName);
     if (err) {
         *err = _err;
     }
-    FASTLED_WARN(_err.c_str());
+    
     return false;
-#endif
 }
 
-void ScreenMap::toJson(const FixedMap<Str, ScreenMap, 16> &segmentMaps,
-                       JsonDocument *_doc) {
+void ScreenMap::toJson(const fl::fl_map<string, ScreenMap> &segmentMaps,
+                       fl::Json *doc) {
 
-#if !FASTLED_ENABLE_JSON
+#if FASTLED_NO_JSON
+    FL_WARN("ScreenMap::toJson called with FASTLED_NO_JSON");
     return;
 #else
-    if (!_doc) {
-        FASTLED_WARN("ScreenMap::toJson called with nullptr _doc");
+    if (!doc) {
+        FL_WARN("ScreenMap::toJson called with nullptr doc");
         return;
     }
-    auto &doc = *_doc;
-    auto map = doc["map"].to<FLArduinoJson::JsonObject>();
-    if (!segmentMaps.empty()) {
-        for (auto kv : segmentMaps) {
-            auto segment = map[kv.first].to<FLArduinoJson::JsonObject>();
-            auto x_array = segment["x"].to<FLArduinoJson::JsonArray>();
-            auto y_array = segment["y"].to<FLArduinoJson::JsonArray>();
-            for (uint16_t i = 0; i < kv.second.getLength(); i++) {
-                const vec2f &xy = kv.second[i];
-                x_array.add(xy.x);
-                y_array.add(xy.y);
-            }
-            float diameter = kv.second.getDiameter();
-            if (diameter < 0.0f) {
-                diameter = .5f; // 5mm.
-            }
-            if (diameter > 0.0f) {
-                segment["diameter"] = diameter;
-            }
+
+    // Create the root object
+    *doc = fl::Json::object();
+    
+    // Create the map object
+    fl::Json mapObj = fl::Json::object();
+    
+    // Populate the map object with segments
+    for (const auto& kv : segmentMaps) {
+        if (kv.second.getLength() == 0) {
+            FL_WARN("ScreenMap::toJson called with empty segment: " << fl::string(kv.first));   
+            continue;
+        }
+        
+        auto& name = kv.first;
+        auto& segment = kv.second;
+        float diameter = segment.getDiameter();
+        
+        // Create x array
+        fl::Json xArray = fl::Json::array();
+        for (u16 i = 0; i < segment.getLength(); i++) {
+            xArray.push_back(fl::Json(static_cast<double>(segment[i].x)));
+        }
+        
+        // Create y array
+        fl::Json yArray = fl::Json::array();
+        for (u16 i = 0; i < segment.getLength(); i++) {
+            yArray.push_back(fl::Json(static_cast<double>(segment[i].y)));
+        }
+        
+        // Create segment object
+        fl::Json segmentObj = fl::Json::object();
+        // Add arrays and diameter to segment object
+        segmentObj.set("x", xArray);
+        segmentObj.set("y", yArray);
+        segmentObj.set("diameter", fl::Json(static_cast<double>(diameter)));
+        
+        // Add segment to map object
+        mapObj.set(name, segmentObj);
+    }
+    
+    // Add map object to root
+    doc->set("map", mapObj);
+    
+    // Debug output
+    fl::string debugStr = doc->to_string();
+    FL_WARN("ScreenMap::toJson generated JSON: " << debugStr);
+#endif
+}
+
+void ScreenMap::toJsonStr(const fl::fl_map<string, ScreenMap> &segmentMaps,
+                          string *jsonBuffer) {
+    fl::Json doc;
+    toJson(segmentMaps, &doc);
+    *jsonBuffer = doc.to_string();
+}
+
+ScreenMap::ScreenMap(u32 length, float mDiameter)
+    : length(length), mDiameter(mDiameter) {
+    if (length > 0) {
+        mLookUpTable = fl::make_shared<LUTXYFLOAT>(length);
+        LUTXYFLOAT &lut = *mLookUpTable.get();
+        vec2f *data = lut.getDataMutable();
+        for (u32 x = 0; x < length; x++) {
+            data[x] = {0, 0};
         }
     }
-
-#endif
 }
 
-void ScreenMap::toJsonStr(const FixedMap<Str, ScreenMap, 16> &segmentMaps,
-                          Str *jsonBuffer) {
-#if !FASTLED_ENABLE_JSON
-    return;
-#else
-    JsonDocument doc;
-    toJson(segmentMaps, &doc);
-    fl::toJson(doc, jsonBuffer);
-#endif
-}
-
-ScreenMap::ScreenMap(uint32_t length, float mDiameter)
-    : length(length), mDiameter(mDiameter) {
-    mLookUpTable = LUTXYFLOATPtr::New(length);
-    LUTXYFLOAT &lut = *mLookUpTable.get();
-    vec2f *data = lut.getDataMutable();
-    for (uint32_t x = 0; x < length; x++) {
-        data[x] = {0, 0};
-    }
-}
-
-ScreenMap::ScreenMap(const vec2f *lut, uint32_t length, float diameter)
+ScreenMap::ScreenMap(const vec2f *lut, u32 length, float diameter)
     : length(length), mDiameter(diameter) {
-    mLookUpTable = LUTXYFLOATPtr::New(length);
+    mLookUpTable = fl::make_shared<LUTXYFLOAT>(length);
     LUTXYFLOAT &lut16xy = *mLookUpTable.get();
     vec2f *data = lut16xy.getDataMutable();
-    for (uint32_t x = 0; x < length; x++) {
+    for (u32 x = 0; x < length; x++) {
         data[x] = lut[x];
     }
 }
@@ -194,7 +335,14 @@ ScreenMap::ScreenMap(const ScreenMap &other) {
     mLookUpTable = other.mLookUpTable;
 }
 
-void ScreenMap::set(uint16_t index, const vec2f &p) {
+ScreenMap::ScreenMap(ScreenMap&& other) {
+    mDiameter = other.mDiameter;
+    length = other.length;
+    fl::swap(mLookUpTable, other.mLookUpTable);
+    other.mLookUpTable.reset();
+}
+
+void ScreenMap::set(u16 index, const vec2f &p) {
     if (mLookUpTable) {
         LUTXYFLOAT &lut = *mLookUpTable.get();
         auto *data = lut.getDataMutable();
@@ -204,7 +352,7 @@ void ScreenMap::set(uint16_t index, const vec2f &p) {
 
 void ScreenMap::setDiameter(float diameter) { mDiameter = diameter; }
 
-vec2f ScreenMap::mapToIndex(uint32_t x) const {
+vec2f ScreenMap::mapToIndex(u32 x) const {
     if (x >= length || !mLookUpTable) {
         return {0, 0};
     }
@@ -213,7 +361,7 @@ vec2f ScreenMap::mapToIndex(uint32_t x) const {
     return screen_coords;
 }
 
-uint32_t ScreenMap::getLength() const { return length; }
+u32 ScreenMap::getLength() const { return length; }
 
 float ScreenMap::getDiameter() const { return mDiameter; }
 
@@ -235,7 +383,7 @@ vec2f ScreenMap::getBounds() const {
     float minY = data[0].y;
     float maxY = data[0].y;
 
-    for (uint32_t i = 1; i < length; i++) {
+    for (u32 i = 1; i < length; i++) {
         const vec2f &p = lut[i];
         minX = MIN(minX, p.x);
         maxX = MAX(maxX, p.x);
@@ -251,7 +399,7 @@ const vec2f &ScreenMap::empty() {
     return s_empty;
 }
 
-const vec2f &ScreenMap::operator[](uint32_t x) const {
+const vec2f &ScreenMap::operator[](u32 x) const {
     if (x >= length || !mLookUpTable) {
         return empty(); // better than crashing.
     }
@@ -259,7 +407,7 @@ const vec2f &ScreenMap::operator[](uint32_t x) const {
     return lut[x];
 }
 
-vec2f &ScreenMap::operator[](uint32_t x) {
+vec2f &ScreenMap::operator[](u32 x) {
     if (x >= length || !mLookUpTable) {
         return const_cast<vec2f &>(empty()); // better than crashing.
     }
@@ -277,9 +425,20 @@ ScreenMap &ScreenMap::operator=(const ScreenMap &other) {
     return *this;
 }
 
+ScreenMap &ScreenMap::operator=(ScreenMap &&other) {
+    if (this != &other) {
+        mDiameter = other.mDiameter;
+        length = other.length;
+        mLookUpTable = fl::move(other.mLookUpTable);
+        other.length = 0;
+        other.mDiameter = -1.0f;
+    }
+    return *this;
+}
+
 void ScreenMap::addOffset(const vec2f &p) {
     vec2f *data = mLookUpTable->getDataMutable();
-    for (uint32_t i = 0; i < length; i++) {
+    for (u32 i = 0; i < length; i++) {
         vec2f &curr = data[i];
         curr.x += p.x;
         curr.y += p.y;

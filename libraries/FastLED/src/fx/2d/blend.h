@@ -6,10 +6,10 @@ are blended by the the max luminance of the components.
 
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/vector.h"
 #include "fl/warn.h"
 #include "fl/xymap.h"
@@ -32,7 +32,7 @@ class Blend2d : public Fx2d {
     // Note that if this xymap is non rectangular then it's recommended that the
     // Fx2d layers that are added should be rectangular.
     Blend2d(const XYMap &xymap);
-    fl::Str fxName() const override;
+    fl::string fxName() const override;
     void add(Fx2dPtr layer, const Params &p = Params());
     void add(Fx2d &layer, const Params &p = Params());
     void draw(DrawContext context) override;

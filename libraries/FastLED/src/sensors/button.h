@@ -1,10 +1,10 @@
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "fl/function_list.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/ui.h"
 #include "sensors/digital_pin.h"
 

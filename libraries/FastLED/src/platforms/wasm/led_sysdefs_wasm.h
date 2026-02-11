@@ -5,7 +5,7 @@
 #endif
 
 #include "platforms/wasm/compiler/Arduino.h"
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #ifndef F_CPU
 #define F_CPU 1000000000
@@ -14,6 +14,10 @@
 #ifndef FASTLED_HAS_MILLIS
 #define FASTLED_HAS_MILLIS 1
 #endif // FASTLED_HAS_MILLIS
+
+#ifdef FASTLED_ALLOW_INTERRUPTS
+#undef FASTLED_ALLOW_INTERRUPTS
+#endif
 
 #define FASTLED_USE_PROGMEM 0
 #define FASTLED_ALLOW_INTERRUPTS 1

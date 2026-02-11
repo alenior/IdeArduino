@@ -1,7 +1,6 @@
 #ifdef __EMSCRIPTEN__
 
 #include <emscripten.h>
-#include <emscripten/bind.h>
 #include <emscripten/emscripten.h> // Include Emscripten headers
 #include <emscripten/html5.h>
 #include <emscripten/val.h>
@@ -13,6 +12,7 @@
 
 #include "platforms/wasm/active_strip_data.h"
 #include "platforms/wasm/js.h"
+#include "platforms/wasm/js_bindings.h"
 
 namespace fl {
 
@@ -28,13 +28,17 @@ void EngineListener::onEndFrame() {
 }
 
 void EngineListener::onStripAdded(CLEDController *strip, uint32_t num_leds) {
-    int id = StripIdMap::addOrGetId(strip);
+    // Use ActiveStripData's IdTracker for consistent ID management
+    ActiveStripData &active_strips = ActiveStripData::Instance();
+    int id = active_strips.getIdTracker().getOrCreateId(strip);
     jsOnStripAdded(id, num_leds);
 }
 
 void EngineListener::onCanvasUiSet(CLEDController *strip,
                                    const ScreenMap &screenmap) {
-    int controller_id = StripIdMap::addOrGetId(strip);
+    // Use ActiveStripData's IdTracker for consistent ID management
+    ActiveStripData &active_strips = ActiveStripData::Instance();
+    int controller_id = active_strips.getIdTracker().getOrCreateId(strip);
     jsSetCanvasSize(controller_id, screenmap);
 }
 

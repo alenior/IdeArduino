@@ -4,10 +4,10 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "FastLED.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/xymap.h"
 #include "fx/fx2d.h"
 #include "fx/time.h"

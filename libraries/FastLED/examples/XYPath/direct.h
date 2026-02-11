@@ -61,9 +61,8 @@ void setup() {
 }
 
 void loop() {
-    fl::clear(leds);
-    // FASTLED_ASSERT(false, "This is a test");
     // leds(x,y) = CRGB(255, 0, 0);
+    fl::clear(leds);
     float from = offset;
     float to = length.value() + offset.value();
     heartPath->drawColor(CRGB(255, 0, 0), from, to, &leds, steps.as_int());

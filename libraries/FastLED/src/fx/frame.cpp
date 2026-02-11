@@ -5,18 +5,17 @@
 #include "fl/allocator.h"
 #include "fl/dbg.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/warn.h"
 #include "fl/xymap.h"
 #include "frame.h"
 
-using namespace fl;
-
+#include "fl/memfill.h"
 namespace fl {
 
 Frame::Frame(int pixels_count) : mPixelsCount(pixels_count), mRgb() {
     mRgb.resize(pixels_count);
-    memset(mRgb.data(), 0, pixels_count * sizeof(CRGB));
+    fl::memfill((uint8_t*)mRgb.data(), 0, pixels_count * sizeof(CRGB));
 }
 
 Frame::~Frame() {
@@ -43,11 +42,11 @@ void Frame::draw(CRGB *leds, DrawMode draw_mode) const {
 void Frame::drawXY(CRGB *leds, const XYMap &xyMap, DrawMode draw_mode) const {
     const uint16_t width = xyMap.getWidth();
     const uint16_t height = xyMap.getHeight();
-    uint32_t count = 0;
+    fl::u32 count = 0;
     for (uint16_t h = 0; h < height; ++h) {
         for (uint16_t w = 0; w < width; ++w) {
-            uint32_t in_idx = xyMap(w, h);
-            uint32_t out_idx = count++;
+            fl::u32 in_idx = xyMap(w, h);
+            fl::u32 out_idx = count++;
             if (in_idx >= mPixelsCount) {
                 FASTLED_WARN(
                     "Frame::drawXY: in index out of range: " << in_idx);
@@ -73,7 +72,7 @@ void Frame::drawXY(CRGB *leds, const XYMap &xyMap, DrawMode draw_mode) const {
     }
 }
 
-void Frame::clear() { memset(mRgb.data(), 0, mPixelsCount * sizeof(CRGB)); }
+void Frame::clear() { fl::memfill((uint8_t*)mRgb.data(), 0, mPixelsCount * sizeof(CRGB)); }
 
 void Frame::interpolate(const Frame &frame1, const Frame &frame2,
                         uint8_t amountofFrame2, CRGB *pixels) {

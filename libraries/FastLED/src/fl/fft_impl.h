@@ -2,8 +2,8 @@
 
 #include "fl/hash_map_lru.h"
 #include "fl/pair.h"
-#include "fl/scoped_ptr.h"
-#include "fl/slice.h"
+#include "fl/unique_ptr.h"
+#include "fl/span.h"
 #include "fl/vector.h"
 
 namespace fl {
@@ -17,26 +17,26 @@ struct FFT_Args;
 //   auto sample = SINE WAVE OF 512 SAMPLES
 //   fft.run(buffer, &out);
 //   FASTLED_WARN("FFTImpl output: " << out);  // 16 bands of output.
-class FFTImpl : public fl::Referent {
+class FFTImpl {
   public:
     // Result indicating success or failure of the FFTImpl run (in which case
     // there will be an error message).
     struct Result {
-        Result(bool ok, const Str &error) : ok(ok), error(error) {}
+        Result(bool ok, const string &error) : ok(ok), error(error) {}
         bool ok = false;
-        fl::Str error;
+        fl::string error;
     };
     // Default values for the FFTImpl.
     FFTImpl(const FFT_Args &args);
     ~FFTImpl();
 
-    size_t sampleSize() const;
+    fl::size sampleSize() const;
     // Note that the sample sizes MUST match the samples size passed into the
     // constructor.
     Result run(const AudioSample &sample, FFTBins *out);
-    Result run(Slice<const int16_t> sample, FFTBins *out);
+    Result run(span<const i16> sample, FFTBins *out);
     // Info on what the frequency the bins represent
-    fl::Str info() const;
+    fl::string info() const;
 
     // Detail.
     static int DefaultSamples() { return 512; }
@@ -52,7 +52,7 @@ class FFTImpl : public fl::Referent {
     FFTImpl &operator=(FFTImpl &&) = delete;
 
   private:
-    fl::scoped_ptr<FFTContext> mContext;
+    fl::unique_ptr<FFTContext> mContext;
 };
 
 }; // namespace fl

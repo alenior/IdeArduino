@@ -1,12 +1,12 @@
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 #include <string>
 
 #include "fl/file_system.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
-#include "fl/slice.h"
+#include "fl/memory.h"
+#include "fl/span.h"
 
 namespace fl {
 
@@ -24,7 +24,7 @@ bool jsInjectFile(const char *path, const uint8_t *data, size_t len);
 bool jsDeclareFile(const char *path, size_t len);
 
 // After a file is declared, it can be appended with more data.
-void jsAppendFile(const char *path, const uint8_t *data, size_t len);
+bool jsAppendFile(const char *path, const uint8_t *data, size_t len);
 
-void fastled_declare_files(std::string jsonStr);
+void fastled_declare_files(const char* jsonStr);
 } // extern "C"

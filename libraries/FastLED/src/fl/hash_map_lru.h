@@ -19,21 +19,21 @@ class HashMapLru {
     // Wrapper for values that includes access time tracking
     struct ValueWithTimestamp {
         T value;
-        uint32_t last_access_time;
+        u32 last_access_time;
 
         ValueWithTimestamp() : last_access_time(0) {}
-        ValueWithTimestamp(const T &v, uint32_t time)
+        ValueWithTimestamp(const T &v, u32 time)
             : value(v), last_access_time(time) {}
     };
 
   public:
-    HashMapLru(size_t max_size) : mMaxSize(max_size), mCurrentTime(0) {
+    HashMapLru(fl::size max_size) : mMaxSize(max_size), mCurrentTime(0) {
         // Ensure max size is at least 1
         if (mMaxSize < 1)
             mMaxSize = 1;
     }
 
-    void setMaxSize(size_t max_size) {
+    void setMaxSize(fl::size max_size) {
         while (mMaxSize < max_size) {
             // Evict oldest items until we reach the new max size
             evictOldest();
@@ -122,9 +122,9 @@ class HashMapLru {
     }
 
     // Size accessors
-    size_t size() const { return mMap.size(); }
+    fl::size size() const { return mMap.size(); }
     bool empty() const { return mMap.empty(); }
-    size_t capacity() const { return mMaxSize; }
+    fl::size capacity() const { return mMaxSize; }
 
   private:
     // Evict the least recently used item
@@ -134,7 +134,7 @@ class HashMapLru {
 
         // Find the entry with the oldest timestamp
         Key oldest_key;
-        uint32_t oldest_time = UINT32_MAX;
+        u32 oldest_time = UINT32_MAX;
         bool found = false;
 
         for (auto it = mMap.begin(); it != mMap.end(); ++it) {
@@ -155,8 +155,8 @@ class HashMapLru {
     }
 
     HashMap<Key, ValueWithTimestamp, Hash, KeyEqual, INLINED_COUNT> mMap;
-    size_t mMaxSize;
-    uint32_t mCurrentTime;
+    fl::size mMaxSize;
+    u32 mCurrentTime;
 };
 
 } // namespace fl

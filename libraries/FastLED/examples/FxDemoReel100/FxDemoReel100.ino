@@ -1,6 +1,12 @@
-/// @file    DemoReel100.ino
-/// @brief   FastLED "100 lines of code" demo reel, showing off some effects
-/// @example DemoReel100.ino
+/// @file    FxDemoReel100.ino
+/// @brief   DemoReel100 effects collection with ScreenMap
+/// @example FxDemoReel100.ino
+///
+/// This sketch is fully compatible with the FastLED web compiler. To use it do the following:
+/// 1. Install Fastled: `pip install fastled`
+/// 2. cd into this examples page.
+/// 3. Run the FastLED web compiler at root: `fastled`
+/// 4. When the compiler is done a web page will open.
 
 #include <FastLED.h>
 #include "fx/1d/demoreel100.h"
@@ -34,7 +40,7 @@ Rgbw rgbwMode = RgbwDefault();
 Rgbw rgbwMode = RgbwInvalid();  // No RGBW mode, just use RGB.
 #endif
 
-DemoReel100Ptr demoReel = DemoReel100Ptr::New(NUM_LEDS);
+DemoReel100Ptr demoReel = fl::make_shared<DemoReel100>(NUM_LEDS);
 
 void setup() {
   ScreenMap screenMap = ScreenMap::DefaultStrip(NUM_LEDS);

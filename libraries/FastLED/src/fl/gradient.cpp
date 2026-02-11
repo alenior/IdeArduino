@@ -7,7 +7,7 @@ namespace fl {
 
 namespace {
 struct Visitor {
-    Visitor(uint8_t index) : index(index) {}
+    Visitor(u8 index) : index(index) {}
     void accept(const CRGBPalette16 *palette) {
         CRGB c = ColorFromPalette(*palette, index);
         return_val = c;
@@ -35,37 +35,40 @@ struct Visitor {
     }
 
     CRGB return_val;
-    uint8_t index;
+    u8 index;
 };
 
 struct VisitorFill {
-    VisitorFill(Slice<const uint8_t> indices, Slice<CRGB> output)
+    VisitorFill(span<const u8> indices, span<CRGB> output)
         : output(output), indices(indices) {
-        FASTLED_ASSERT(
-            indices.size() == output.size(),
-            "Gradient::fill: indices and output must be the same size");
+        // This assert was triggering on the corkscrew example. Not sure why
+        // but the corrective action of taking the min was corrective action.
+        // FASTLED_ASSERT(
+        //     indices.size() == output.size(),
+        //     "Gradient::fill: indices and output must be the same size"
+        //     "\nSize was" << indices.size() << " and " << output.size());
         n = MIN(indices.size(), output.size());
     }
     void accept(const CRGBPalette16 *palette) {
-        for (size_t i = 0; i < n; ++i) {
+        for (fl::size i = 0; i < n; ++i) {
             output[i] = ColorFromPalette(*palette, indices[i]);
         }
     }
 
     void accept(const CRGBPalette32 *palette) {
-        for (size_t i = 0; i < n; ++i) {
+        for (fl::size i = 0; i < n; ++i) {
             output[i] = ColorFromPalette(*palette, indices[i]);
         }
     }
 
     void accept(const CRGBPalette256 *palette) {
-        for (size_t i = 0; i < n; ++i) {
+        for (fl::size i = 0; i < n; ++i) {
             output[i] = ColorFromPaletteExtended(*palette, indices[i]);
         }
     }
 
     void accept(const Gradient::GradientFunction &func) {
-        for (size_t i = 0; i < n; ++i) {
+        for (fl::size i = 0; i < n; ++i) {
             output[i] = func(indices[i]);
         }
     }
@@ -76,14 +79,14 @@ struct VisitorFill {
         accept(&obj);
     }
 
-    Slice<CRGB> output;
-    Slice<const uint8_t> indices;
-    uint8_t n = 0;
+    span<CRGB> output;
+    span<const u8> indices;
+    u8 n = 0;
 };
 
 } // namespace
 
-CRGB Gradient::colorAt(uint8_t index) const {
+CRGB Gradient::colorAt(u8 index) const {
     Visitor visitor(index);
     mVariant.visit(visitor);
     return visitor.return_val;
@@ -111,18 +114,18 @@ Gradient &Gradient::operator=(const Gradient &other) {
     return *this;
 }
 
-void Gradient::fill(Slice<const uint8_t> input, Slice<CRGB> output) const {
+void Gradient::fill(span<const u8> input, span<CRGB> output) const {
     VisitorFill visitor(input, output);
     mVariant.visit(visitor);
 }
 
-CRGB GradientInlined::colorAt(uint8_t index) const {
+CRGB GradientInlined::colorAt(u8 index) const {
     Visitor visitor(index);
     mVariant.visit(visitor);
     return visitor.return_val;
 }
-void GradientInlined::fill(Slice<const uint8_t> input,
-                           Slice<CRGB> output) const {
+void GradientInlined::fill(span<const u8> input,
+                           span<CRGB> output) const {
     VisitorFill visitor(input, output);
     mVariant.visit(visitor);
 }

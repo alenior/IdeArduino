@@ -1,37 +1,289 @@
 #ifdef __EMSCRIPTEN__
 
-// DO NOT clang-format this file!! It will destroy the EM_ASM_ macros.
-// clang-format off
-
+// ⚠️⚠️⚠️ CRITICAL WARNING: C++ ↔ JavaScript PURE ARCHITECTURE BRIDGE - HANDLE WITH EXTREME CARE! ⚠️⚠️⚠️
+//
+// 🚨 THIS FILE CONTAINS C++ TO JAVASCRIPT PURE DATA EXPORT FUNCTIONS 🚨
+//
+// DO NOT MODIFY FUNCTION SIGNATURES WITHOUT UPDATING CORRESPONDING JAVASCRIPT CODE!
+// 
+// This file provides a PURE DATA EXPORT LAYER between C++ and JavaScript.
+// No embedded JavaScript - only simple C++ functions that export data.
+// All async logic is handled in pure JavaScript modules.
+//
+// Key data export functions:
+// - getFrameData() - exports frame data as JSON 
+// - freeFrameData() - frees allocated frame data
+// - getStripUpdateData() - exports strip update data
+// - notifyStripAdded() - simple strip addition notification
+// - processUiInput() - processes UI input from JavaScript
+//
+// All JavaScript integration is handled by:
+// - fastled_async_controller.js - Pure JavaScript async controller
+// - fastled_callbacks.js - User callback interface  
+// - fastled_events.js - Event-driven architecture
+//
+// ⚠️⚠️⚠️ REMEMBER: This is a PURE DATA LAYER - no JavaScript embedded! ⚠️⚠️⚠️
 
 #include <emscripten.h>
-#include <emscripten/emscripten.h> // Include Emscripten headers
+#include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <cfloat>
+#include <string>
+#include <cstring>
+#include <cstdlib>
 
 #include "js_bindings.h"
 
-#include "active_strip_data.h"
+#include "platforms/shared/active_strip_data/active_strip_data.h"
 #include "fl/dbg.h"
 #include "fl/math.h"
 #include "fl/screenmap.h"
 #include "fl/json.h"
 
+// Forward declarations for functions used in this file
 namespace fl {
-
-static void jsSetCanvasSizeJson(const char* jsonString, size_t jsonSize) {
-    FASTLED_DBG("jsSetCanvasSize1");
-    EM_ASM_({
-        globalThis.FastLED_onStripUpdate = globalThis.FastLED_onStripUpdate || function(jsonStr) {
-            console.log("Missing globalThis.FastLED_onStripUpdate(jsonStr) function");
-        };
-        var jsonStr = UTF8ToString($0, $1);  // Convert C string to JavaScript string with length
-        var jsonData = JSON.parse(jsonStr);
-        globalThis.FastLED_onStripUpdate(jsonData);
-    }, jsonString, jsonSize);
+void jsUpdateUiComponents(const std::string &jsonStr);
 }
 
+namespace fl {
+
+// Forward declarations for functions defined later in this file
+EMSCRIPTEN_KEEPALIVE void jsFillInMissingScreenMaps(ActiveStripData &active_strips);
+
+} // namespace fl
+
+// Exported C functions for JavaScript access
+extern "C" {
+
+/**
+ * Frame Data Export Function
+ * Exports frame data as JSON string with size information
+ * Returns malloc'd buffer that must be freed with freeFrameData()
+ */
+EMSCRIPTEN_KEEPALIVE void* getFrameData(int* dataSize) {
+    // Fill active strips data
+    fl::ActiveStripData& active_strips = fl::ActiveStripData::Instance();
+    fl::jsFillInMissingScreenMaps(active_strips);
+    
+    // Serialize to JSON
+    fl::Str json_str = active_strips.infoJsonString();
+    
+    // Allocate and return data pointer
+    char* buffer = (char*)malloc(json_str.length() + 1);
+    strcpy(buffer, json_str.c_str());
+    *dataSize = json_str.length();
+    
+    return buffer;
+}
+
+/**
+ * ScreenMap Export Function
+ * Exports screenMap data as JSON string with size information
+ * Returns malloc'd buffer that must be freed with freeFrameData()
+ */
+EMSCRIPTEN_KEEPALIVE void* getScreenMapData(int* dataSize) {
+    fl::ActiveStripData& active_strips = fl::ActiveStripData::Instance();
+    const auto& screenMaps = active_strips.getScreenMaps();
+    
+    // Create screenMap JSON with expected structure (legacy-compatible)
+    FLArduinoJson::JsonDocument doc;
+    auto root = doc.to<FLArduinoJson::JsonObject>();
+    auto stripsObj = root["strips"].to<FLArduinoJson::JsonObject>();
+    
+    // Track global bounds for absMax/absMin calculation
+    float globalMinX = FLT_MAX, globalMinY = FLT_MAX;
+    float globalMaxX = -FLT_MAX, globalMaxY = -FLT_MAX;
+    bool hasData = false;
+    
+    // Get screenMap data
+    for (const auto &[stripIndex, screenMap] : screenMaps) {
+        // Create strip object with expected structure (legacy-compatible)
+        auto stripMapObj = stripsObj[std::to_string(stripIndex)].to<FLArduinoJson::JsonObject>();
+        
+        auto mapObj = stripMapObj["map"].to<FLArduinoJson::JsonObject>();
+        auto xArray = mapObj["x"].to<FLArduinoJson::JsonArray>();
+        auto yArray = mapObj["y"].to<FLArduinoJson::JsonArray>();
+        
+        // Track strip-specific bounds for min/max arrays
+        float stripMinX = FLT_MAX, stripMinY = FLT_MAX;
+        float stripMaxX = -FLT_MAX, stripMaxY = -FLT_MAX;
+        
+        for (uint32_t i = 0; i < screenMap.getLength(); i++) {
+            float x = screenMap[i].x;
+            float y = screenMap[i].y;
+            
+            xArray.add(x);
+            yArray.add(y);
+            
+            // Update strip bounds
+            if (x < stripMinX) stripMinX = x;
+            if (x > stripMaxX) stripMaxX = x;
+            if (y < stripMinY) stripMinY = y;
+            if (y > stripMaxY) stripMaxY = y;
+            
+            // Update global bounds
+            if (x < globalMinX) globalMinX = x;
+            if (x > globalMaxX) globalMaxX = x;
+            if (y < globalMinY) globalMinY = y;
+            if (y > globalMaxY) globalMaxY = y;
+            hasData = true;
+        }
+        
+        // Add legacy-compatible min/max arrays for this strip
+        if (screenMap.getLength() > 0) {
+            auto minArray = stripMapObj["min"].to<FLArduinoJson::JsonArray>();
+            auto maxArray = stripMapObj["max"].to<FLArduinoJson::JsonArray>();
+            
+            minArray.add(stripMinX);
+            minArray.add(stripMinY);
+            maxArray.add(stripMaxX);
+            maxArray.add(stripMaxY);
+        }
+        
+        // Add diameter
+        stripMapObj["diameter"] = screenMap.getDiameter();
+    }
+    
+    // Add global absMin and absMax arrays if we have data
+    if (hasData) {
+        auto absMinArray = root["absMin"].to<FLArduinoJson::JsonArray>();
+        auto absMaxArray = root["absMax"].to<FLArduinoJson::JsonArray>();
+        
+        absMinArray.add(globalMinX);
+        absMinArray.add(globalMinY);
+        absMaxArray.add(globalMaxX);
+        absMaxArray.add(globalMaxY);
+    } else {
+        // Provide default bounds if no data
+        auto absMinArray = root["absMin"].to<FLArduinoJson::JsonArray>();
+        auto absMaxArray = root["absMax"].to<FLArduinoJson::JsonArray>();
+        
+        absMinArray.add(0.0f);
+        absMinArray.add(0.0f);
+        absMaxArray.add(0.0f);
+        absMaxArray.add(0.0f);
+    }
+    
+    // Serialize to JSON
+    fl::Str json_str;
+    serializeJson(doc, json_str);
+    
+    // Allocate and return data pointer
+    char* buffer = (char*)malloc(json_str.length() + 1);
+    strcpy(buffer, json_str.c_str());
+    *dataSize = json_str.length();
+    
+    return buffer;
+}
+
+/**
+ * Pure C++ Memory Management Function
+ * Frees frame data allocated by getFrameData()
+ */
+EMSCRIPTEN_KEEPALIVE void freeFrameData(void* data) {
+    if (data) {
+        free(data);
+    }
+}
+
+/**
+ * Frame Version Function
+ * Gets current frame version number for JavaScript polling
+ */
+EMSCRIPTEN_KEEPALIVE uint32_t getFrameVersion() {
+    // Simple frame counter using millis() 
+    // WASM is single-threaded so this is safe
+    static uint32_t frameCounter = 0;
+    frameCounter++;
+    return frameCounter;
+}
+
+/**
+ * New Frame Data Check Function
+ * Checks if new frame data is available since last known version
+ */
+EMSCRIPTEN_KEEPALIVE bool hasNewFrameData(uint32_t lastKnownVersion) {
+    // Simple implementation - in WASM single-threaded environment
+    // we can assume there's always new data if the versions differ
+    return getFrameVersion() > lastKnownVersion;
+}
+
+/**
+ * Pure C++ UI Input Processing Function
+ * Processes UI input JSON from JavaScript
+ */
+EMSCRIPTEN_KEEPALIVE void processUiInput(const char* jsonInput) {
+    if (!jsonInput) {
+        printf("Error: Received null UI input\n");
+        return;
+    }
+    
+    // Process UI input from JavaScript
+    // Forward to existing UI system
+    fl::jsUpdateUiComponents(std::string(jsonInput));
+}
+
+} // extern "C"
+
+namespace fl {
+
+/**
+ * Pure C++ Strip Update Data Export Function
+ * Exports strip update data as JSON for specific strip
+ */
+EMSCRIPTEN_KEEPALIVE void* getStripUpdateData(int stripId, int* dataSize) {
+    // Generate basic strip update JSON
+    FLArduinoJson::JsonDocument doc;
+    doc["strip_id"] = stripId;
+    doc["event"] = "strip_update";
+    doc["timestamp"] = millis();
+    
+    Str jsonBuffer;
+    serializeJson(doc, jsonBuffer);
+    
+    // Allocate and return data pointer
+    char* buffer = (char*)malloc(jsonBuffer.length() + 1);
+    strcpy(buffer, jsonBuffer.c_str());
+    *dataSize = jsonBuffer.length();
+    
+    return buffer;
+}
+
+/**
+ * Pure C++ Strip Addition Notification
+ * Simple notification - no JavaScript embedded
+ */
+EMSCRIPTEN_KEEPALIVE void notifyStripAdded(int stripId, int numLeds) {
+    // Simple notification - JavaScript will handle the async logic
+    printf("Strip added: ID %d, LEDs %d\n", stripId, numLeds);
+}
+
+/**
+ * Pure C++ UI Data Export Function
+ * Exports UI changes as JSON for JavaScript processing
+ */
+EMSCRIPTEN_KEEPALIVE void* getUiUpdateData(int* dataSize) {
+    // Export basic UI update structure
+    FLArduinoJson::JsonDocument doc;
+    doc["event"] = "ui_update";
+    doc["timestamp"] = millis();
+    
+    Str jsonBuffer;
+    serializeJson(doc, jsonBuffer);
+    
+    // Allocate and return data pointer
+    char* buffer = (char*)malloc(jsonBuffer.length() + 1);
+    strcpy(buffer, jsonBuffer.c_str());
+    *dataSize = jsonBuffer.length();
+    
+    return buffer;
+}
+
+/**
+ * Canvas Size Setting Function - Exports data instead of calling JavaScript
+ */
 static void _jsSetCanvasSize(int cledcontoller_id, const fl::ScreenMap &screenmap) {
-    FASTLED_DBG("Begin jsSetCanvasSize json serialization");
+    // Export canvas size data as JSON for JavaScript to process
     FLArduinoJson::JsonDocument doc;
     doc["strip_id"] = cledcontoller_id;
     doc["event"] = "set_canvas_map";
@@ -48,13 +300,14 @@ static void _jsSetCanvasSize(int cledcontoller_id, const fl::ScreenMap &screenma
     if (diameter > 0.0f) {
         doc["diameter"] = diameter;
     }
-    FASTLED_DBG("Finished json dict building.");
+    
     Str jsonBuffer;
     serializeJson(doc, jsonBuffer);
-    FASTLED_DBG("End jsSetCanvasSize json serialization");
-    jsSetCanvasSizeJson(jsonBuffer.c_str(), jsonBuffer.size());
+    
+    // Instead of calling JavaScript directly, just print for now
+    // JavaScript will poll for this data or receive it through events
+    printf("Canvas map data: %s\n", jsonBuffer.c_str());
 }
-
 
 void jsSetCanvasSize(int cledcontoller_id, const fl::ScreenMap &screenmap) {
     _jsSetCanvasSize(cledcontoller_id, screenmap);
@@ -111,87 +364,65 @@ EMSCRIPTEN_KEEPALIVE void jsFillInMissingScreenMaps(ActiveStripData &active_stri
     }
 }
 
+/**
+ * Pure C++ Frame Processing Function - Exports data instead of calling JavaScript
+ */
 EMSCRIPTEN_KEEPALIVE void jsOnFrame(ActiveStripData& active_strips) {
     jsFillInMissingScreenMaps(active_strips);
-    Str json_str = active_strips.infoJsonString();
-    EM_ASM_({
-
-        globalThis.FastLED_sendMessage = globalThis.FastLED_sendMessage || function(msg_tag, json_data_str) {
-            console.log("Missing globalThis.FastLED_sendMessage() function");
-            console.log("Message was mean for tag: " + msg_tag);
-            const json_data = JSON.parse(json_data_str);
-            console.log("Received JSON data:", json_data);
-        };
-
-        globalThis.FastLED_onFrame = globalThis.FastLED_onFrame || function(frameInfo, callback) {
-                console.log("Missing globalThis.FastLED_onFrame() function");
-            //console.log("Received frame data:", frameData);
-            if (typeof callback === 'function') {
-                    callback();
-                } else {
-                console.error("Callback function is not a function but is of type " + typeof callback);
-                }
-            };
-        globalThis.onFastLedUiUpdateFunction = globalThis.onFastLedUiUpdateFunction || function(jsonString) {
-            if (typeof jsonString === 'string' && jsonString !== null) {
-                    Module._jsUiManager_updateUiComponents(jsonString);
-                } else {
-                console.error("Invalid jsonData received:", jsonString, "expected string but instead got:", typeof jsonString);
-                }
-            };
-
-       globalThis.FastLED_onFrameData = globalThis.FastLED_onFrameData || new Module.ActiveStripData();
-            var activeStrips = globalThis.FastLED_onFrameData;
-
-            var jsonStr = UTF8ToString($0);
-            var jsonData = JSON.parse(jsonStr);
-            for (var i = 0; i < jsonData.length; i++) {
-                var stripData = jsonData[i];
-            var pixelData = activeStrips.getPixelData_Uint8(stripData.strip_id);
-                jsonData[i].pixel_data = pixelData;
-            }
-
-        globalThis.FastLED_onFrame(jsonData, globalThis.onFastLedUiUpdateFunction);
-    }, json_str.c_str());
+    // JavaScript will call getFrameData() to retrieve the frame data
+    // No embedded JavaScript - pure data export approach
 }
 
+/**
+ * Pure C++ Strip Addition Notification - Simple logging
+ */
 EMSCRIPTEN_KEEPALIVE void jsOnStripAdded(uintptr_t strip, uint32_t num_leds) {
-    EM_ASM_({
-        globalThis.FastLED_onStripAdded = globalThis.FastLED_onStripAdded || function() {
-            console.log("Missing globalThis.FastLED_onStripAdded(id, length) function");
-            console.log("Added strip id: " + arguments[0] + " with length: " + arguments[1]);
-            };
-            globalThis.FastLED_onStripAdded($0, $1);
-    }, strip, num_leds);
+    // Use the pure C++ notification function
+    notifyStripAdded(strip, num_leds);
 }
 
+/**
+ * Pure C++ UI Update Function - Simple data processing
+ */
 EMSCRIPTEN_KEEPALIVE void updateJs(const char* jsonStr) {
-    printf("updateJs: %s\n", jsonStr);
-    EM_ASM_({
-            globalThis.FastLED_onUiElementsAdded = globalThis.FastLED_onUiElementsAdded || function(jsonData, updateFunc) {
-                console.log(new Date().toLocaleTimeString());
-            console.log("Missing globalThis.FastLED_onUiElementsAdded(jsonData, updateFunc) function");
-                console.log("Added ui elements:", jsonData);
-            };
-            var jsonStr = UTF8ToString($0);
-            var data = null;
-            try {
-                data = JSON.parse(jsonStr);
-            } catch (error) {
-                console.error("Error parsing JSON:", error);
-                console.error("Problematic JSON string:", jsonStr);
-                return;
-            }
-            if (data) {
-                globalThis.FastLED_onUiElementsAdded(data);
-            } else {
-                console.error("Internal error, data is null");
-            }
-
-    }, jsonStr);
+    printf("updateJs: ENTRY - PURE C++ VERSION - jsonStr=%s\n", jsonStr ? jsonStr : "NULL");
+    
+    // Process UI input using pure C++ function
+    ::processUiInput(jsonStr);
+    
+    printf("updateJs: EXIT - PURE C++ VERSION\n");
 }
 
-
+/**
+ * Strip Pixel Data Access - Critical JavaScript Bridge
+ * 
+ * ⚠️⚠️⚠️ CRITICAL WARNING: C++ ↔ JavaScript STRIP DATA BRIDGE ⚠️⚠️⚠️
+ * 
+ * This function provides direct access to LED strip pixel data for JavaScript.
+ * Any changes to the function signature will BREAK JavaScript pixel data access!
+ * 
+ * JavaScript usage:
+ *   let sizePtr = Module._malloc(4);
+ *   let dataPtr = Module.ccall('getStripPixelData', 'number', ['number', 'number'], [stripIndex, sizePtr]);
+ *   if (dataPtr !== 0) {
+ *       let size = Module.getValue(sizePtr, 'i32');
+ *       let pixelData = new Uint8Array(Module.HEAPU8.buffer, dataPtr, size);
+ *   }
+ *   Module._free(sizePtr);
+ */
+extern "C" EMSCRIPTEN_KEEPALIVE 
+uint8_t* getStripPixelData(int stripIndex, int* outSize) {
+    ActiveStripData& instance = ActiveStripData::Instance();
+    ActiveStripData::StripDataMap::mapped_type stripData;
+    
+    if (instance.getData().get(stripIndex, &stripData)) {
+        if (outSize) *outSize = static_cast<int>(stripData.size());
+        return const_cast<uint8_t*>(stripData.data());
+    }
+    
+    if (outSize) *outSize = 0;
+    return nullptr;
+}
 
 } // namespace fl
 

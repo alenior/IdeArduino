@@ -1,11 +1,19 @@
 #ifdef __EMSCRIPTEN__
 
+// ================================================================================================
+// FASTLED WASM JAVASCRIPT UTILITY FUNCTIONS
+// ================================================================================================
+//
+// This file provides WASM-specific utility functions, including an optimized delay()
+// implementation that pumps fetch requests during delay periods.
+// ================================================================================================
+
 #include <emscripten.h>
 #include <emscripten/emscripten.h> // Include Emscripten headers
 #include <emscripten/html5.h>
 
 #include <memory>
-#include <stdint.h>
+#include "fl/stdint.h"
 #include <stdio.h>
 #include <string>
 
@@ -17,67 +25,82 @@
 #include "fl/screenmap.h"
 #include "fl/str.h"
 #include "js.h"
-#include "ui/ui_internal.h"
+#include "platforms/shared/ui/json/ui_internal.h"
 
 // extern setup and loop which will be supplied by the sketch.
 extern void setup();
 extern void loop();
 
+// Forward declaration for async update function
 namespace fl {
-
-struct EndFrameListener : public fl::EngineEvents::Listener {
-    EndFrameListener() = default;
-    void onEndFrame() override {
-        // This is called at the end of the frame.
-        // We can do some cleanup here if needed.
-        // For now, we will just call the JavaScript function.
-        mEndFrameHappened = true;
-    }
-    bool mEndFrameHappened = false;
-
-    bool endFrameHappened() {
-        bool result = mEndFrameHappened;
-        mEndFrameHappened = false;
-        return result;
-    }
-};
-
-EndFrameListener gEndFrameListener;
-
-inline void setup_once() {
-    static bool g_setup_called = false;
-    if (g_setup_called) {
-        return;
-    }
-    EngineListener::Init();
-    EngineEvents::addListener(&gEndFrameListener);
-    g_setup_called = true;
-    setup();
+    void async_run();
 }
 
 //////////////////////////////////////////////////////////////////////////
-// BEGIN EMSCRIPTEN EXPORTS
-EMSCRIPTEN_KEEPALIVE extern "C" int extern_setup() {
-    setup_once();
-    return 0;
-}
+// WASM-SPECIFIC UTILITY FUNCTIONS
+//////////////////////////////////////////////////////////////////////////
 
-EMSCRIPTEN_KEEPALIVE extern "C" int extern_loop() {
-    setup_once();
-    // fastled_resume_timer();
-    fl::EngineEvents::onPlatformPreLoop();
-    loop();
+extern "C" {
 
-    if (!gEndFrameListener.endFrameHappened()) {
-        // UI needs to pump the event loop.
-        // This happens if the sketch fails to call FastLED.show().
-        // This is a problem because the UI will not update, so we manually pump
-        // it here.
-        fl::EngineEvents::onEndFrame();
+/// @brief Custom delay implementation for WASM that pumps async tasks
+/// @param ms Number of milliseconds to delay
+/// 
+/// This optimized delay() breaks the delay period into 1ms chunks and pumps
+/// all async tasks (fetch, timers, etc.) during each interval, making delay 
+/// time useful for processing async operations instead of just blocking.
+void delay(int ms) {
+    if (ms <= 0) {
+        return;
     }
-    // fastled_pause_timer();
-    return 0;
+    
+    uint32_t end = millis() + ms;
+    
+    // Break delay into 1ms chunks and pump all async tasks
+    while (millis() < end) {
+        // Update all async tasks (fetch, timers, etc.) during delay
+        fl::async_run();
+
+        if (millis() >= end) {
+            break;
+        }
+        
+        // Sleep for 1ms using Emscripten's sleep
+        emscripten_sleep(1);
+    }
 }
+
+/// @brief Microsecond delay implementation for WASM  
+/// @param micros Number of microseconds to delay
+///
+/// For microsecond delays, we use Emscripten's busywait since pumping
+/// fetch requests every microsecond would be too expensive.
+void delayMicroseconds(int micros) {
+    if (micros <= 0) {
+        return;
+    }
+    
+    // For microsecond precision, use busy wait
+    // Converting microseconds to milliseconds for emscripten_sleep would lose precision
+    double start = emscripten_get_now();
+    double target = start + (micros / 1000.0); // Convert to milliseconds
+    
+    while (emscripten_get_now() < target) {
+        // Busy wait for microsecond precision
+        // No fetch pumping here as it would be too expensive
+    }
+}
+
+// NOTE: millis() and micros() functions are defined in timer.cpp with EMSCRIPTEN_KEEPALIVE
+// to avoid duplicate definitions in unified builds
+
+} // extern "C"
+
+namespace fl {
+
+//////////////////////////////////////////////////////////////////////////
+// NOTE: All setup/loop functionality has been moved to entry_point.cpp
+// This file now provides WASM-specific utility functions including
+// an optimized delay() that pumps fetch requests
 
 } // namespace fl
 

@@ -1,14 +1,22 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "fl/clamp.h"
 #include "fl/force_inline.h"
 #include "fl/math_macros.h"
+#include "fl/compiler_control.h"
+#include "fl/geometry.h"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
+FL_DISABLE_WARNING_PUSH
+FL_DISABLE_WARNING(float-equal)
+FL_DISABLE_WARNING(double-promotion)
+FL_DISABLE_WARNING_FLOAT_CONVERSION
+FL_DISABLE_WARNING_SIGN_CONVERSION
+FL_DISABLE_WARNING_IMPLICIT_INT_CONVERSION
+FL_DISABLE_WARNING_FLOAT_CONVERSION
+
 
 namespace fl {
 
@@ -26,7 +34,7 @@ template <typename T, typename U>
 FASTLED_FORCE_INLINE U map_range(T value, T in_min, T in_max, U out_min,
                                  U out_max) {
     // Not fully tested with all unsigned types, so watch out if you use this
-    // with uint16_t and you value < in_min.
+    // with u16 and you value < in_min.
     using namespace map_range_detail;
     if (equals(value, in_min)) {
         return out_min;
@@ -41,7 +49,7 @@ template <typename T, typename U>
 FASTLED_FORCE_INLINE U map_range_clamped(T value, T in_min, T in_max, U out_min,
                                          U out_max) {
     // Not fully tested with all unsigned types, so watch out if you use this
-    // with uint16_t and you value < in_min.
+    // with u16 and you value < in_min.
     using namespace map_range_detail;
     value = clamp(value, in_min, in_max);
     return map_range<T, U>(value, in_min, in_max, out_min, out_max);
@@ -62,29 +70,29 @@ template <typename T, typename U> struct map_range_math {
     }
 };
 
-template <> struct map_range_math<uint8_t, uint8_t> {
-    static uint8_t map(uint8_t value, uint8_t in_min, uint8_t in_max,
-                       uint8_t out_min, uint8_t out_max) {
+template <> struct map_range_math<u8, u8> {
+    static u8 map(u8 value, u8 in_min, u8 in_max,
+                       u8 out_min, u8 out_max) {
         if (value == in_min) {
             return out_min;
         }
         if (value == in_max) {
             return out_max;
         }
-        // Promote uint8_t to int16_t for mapping.
-        int16_t v16 = value;
-        int16_t in_min16 = in_min;
-        int16_t in_max16 = in_max;
-        int16_t out_min16 = out_min;
-        int16_t out_max16 = out_max;
-        int16_t out16 = map_range<uint16_t, uint16_t>(v16, in_min16, in_max16,
+        // Promote u8 to i16 for mapping.
+        i16 v16 = value;
+        i16 in_min16 = in_min;
+        i16 in_max16 = in_max;
+        i16 out_min16 = out_min;
+        i16 out_max16 = out_max;
+        i16 out16 = map_range<i16, i16>(v16, in_min16, in_max16,
                                                       out_min16, out_max16);
         if (out16 < 0) {
             out16 = 0;
         } else if (out16 > 255) {
             out16 = 255;
         }
-        return static_cast<uint8_t>(out16);
+        return static_cast<u8>(out16);
     }
 };
 
@@ -114,4 +122,4 @@ inline bool equals(double d, double d2) { return ALMOST_EQUAL_DOUBLE(d, d2); }
 
 } // namespace fl
 
-#pragma GCC diagnostic pop
+FL_DISABLE_WARNING_POP

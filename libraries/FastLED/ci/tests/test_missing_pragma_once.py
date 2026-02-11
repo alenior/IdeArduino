@@ -1,15 +1,18 @@
+# pyright: reportUnknownMemberType=false
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
 
-from ci.paths import PROJECT_ROOT
+from ci.util.paths import PROJECT_ROOT
+
 
 SRC_ROOT = PROJECT_ROOT / "src"
 
-NUM_WORKERS = (os.cpu_count() or 1) * 4
+NUM_WORKERS = 1 if os.environ.get("NO_PARALLEL") else (os.cpu_count() or 1) * 4
 
 # Files that are allowed to not have #pragma once
-EXCLUDED_FILES = [
+EXCLUDED_FILES: List[str] = [
     # Add any exceptions here
 ]
 
@@ -20,7 +23,6 @@ EXCLUDED_DIRS = [
 
 
 class TestMissingPragmaOnce(unittest.TestCase):
-
     def check_file(self, file_path: str) -> list[str]:
         """Check if a header file has #pragma once directive or if a cpp file incorrectly has it."""
         failings: list[str] = []
@@ -45,7 +47,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
         1. Check for missing #pragma once in header files
         2. Check for incorrect #pragma once in cpp files
         """
-        files_to_check = []
+        files_to_check: List[str] = []
         current_dir = None
 
         # Collect files to check
@@ -54,9 +56,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
             rel_path = os.path.relpath(root, SRC_ROOT)
             if current_dir != rel_path:
                 current_dir = rel_path
-                print(f"Traversing directory: {rel_path}")
                 if rel_path in EXCLUDED_DIRS:
-                    print(f"  Skipping excluded directory: {rel_path}")
                     dirs[:] = []  # Skip this directory and its subdirectories
                     continue
 
@@ -68,9 +68,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
             for excluded_dir in EXCLUDED_DIRS:
                 npath = os.path.normpath(root)
                 npath_excluded = os.path.normpath(excluded_dir)
-                print(f"Checking {npath} against excluded {npath_excluded}")
                 if npath.startswith(npath_excluded):
-                    print(f"  Skipping excluded directory: {rel_path}")
                     break
 
             for file in files:
@@ -92,7 +90,7 @@ class TestMissingPragmaOnce(unittest.TestCase):
         print(f"Found {len(files_to_check)} files to check")
 
         # Process files in parallel
-        all_failings = []
+        all_failings: List[str] = []
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
             futures = [
                 executor.submit(self.check_file, file_path)

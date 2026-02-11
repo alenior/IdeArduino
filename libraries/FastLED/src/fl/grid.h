@@ -1,18 +1,20 @@
 
 #pragma once
 
-#include "fl/slice.h"
+#include "fl/span.h"
 #include "fl/vector.h"
+#include "fl/allocator.h"
 
 namespace fl {
+
 
 template <typename T> class Grid {
   public:
     Grid() = default;
 
-    Grid(uint32_t width, uint32_t height) { reset(width, height); }
+    Grid(u32 width, u32 height) { reset(width, height); }
 
-    void reset(uint32_t width, uint32_t height) {
+    void reset(u32 width, u32 height) {
         clear();
         if (width != mWidth || height != mHeight) {
             mWidth = width;
@@ -24,8 +26,9 @@ template <typename T> class Grid {
                                     width, height);
     }
 
+
     void clear() {
-        for (uint32_t i = 0; i < mWidth * mHeight; ++i) {
+        for (u32 i = 0; i < mWidth * mHeight; ++i) {
             mData[i] = T();
         }
     }
@@ -33,7 +36,7 @@ template <typename T> class Grid {
     vec2<T> minMax() const {
         T minValue = mData[0];
         T maxValue = mData[0];
-        for (uint32_t i = 1; i < mWidth * mHeight; ++i) {
+        for (u32 i = 1; i < mWidth * mHeight; ++i) {
             if (mData[i] < minValue) {
                 minValue = mData[i];
             }
@@ -47,42 +50,42 @@ template <typename T> class Grid {
         return out;
     }
 
-    T &at(uint32_t x, uint32_t y) { return access(x, y); }
-    const T &at(uint32_t x, uint32_t y) const { return access(x, y); }
+    T &at(u32 x, u32 y) { return access(x, y); }
+    const T &at(u32 x, u32 y) const { return access(x, y); }
 
-    T &operator()(uint32_t x, uint32_t y) { return at(x, y); }
-    const T &operator()(uint32_t x, uint32_t y) const { return at(x, y); }
+    T &operator()(u32 x, u32 y) { return at(x, y); }
+    const T &operator()(u32 x, u32 y) const { return at(x, y); }
 
-    uint32_t width() const { return mWidth; }
-    uint32_t height() const { return mHeight; }
+    u32 width() const { return mWidth; }
+    u32 height() const { return mHeight; }
 
     T* data() { return mData.data(); }
     const T* data() const { return mData.data(); }
 
-    size_t size() const { return mData.size(); }
+    fl::size size() const { return mData.size(); }
 
   private:
     static T &NullValue() {
         static T gNull;
         return gNull;
     }
-    T &access(uint32_t x, uint32_t y) {
+    T &access(u32 x, u32 y) {
         if (x < mWidth && y < mHeight) {
             return mSlice.at(x, y);
         } else {
             return NullValue(); // safe.
         }
     }
-    const T &access(uint32_t x, uint32_t y) const {
+    const T &access(u32 x, u32 y) const {
         if (x < mWidth && y < mHeight) {
             return mSlice.at(x, y);
         } else {
             return NullValue(); // safe.
         }
     }
-    fl::vector<T> mData;
-    uint32_t mWidth = 0;
-    uint32_t mHeight = 0;
+    fl::vector<T, fl::allocator_psram<T>> mData;
+    u32 mWidth = 0;
+    u32 mHeight = 0;
     fl::MatrixSlice<T> mSlice;
 };
 

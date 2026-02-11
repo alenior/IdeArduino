@@ -5,18 +5,17 @@
 #include "fl/singleton.h"
 #include "fl/vector.h"
 #include "fl/xymap.h"
+#include "fl/string.h"
+#include "fl/int.h"
 
 #ifndef FASTLED_HAS_ENGINE_EVENTS
-#ifdef __AVR__
-#define FASTLED_HAS_ENGINE_EVENTS 0
-#else
-#define FASTLED_HAS_ENGINE_EVENTS 1
-#endif
+#define FASTLED_HAS_ENGINE_EVENTS SKETCH_HAS_LOTS_OF_MEMORY
 #endif // FASTLED_HAS_ENGINE_EVENTS
 
 FASTLED_NAMESPACE_BEGIN
 class CLEDController;
 FASTLED_NAMESPACE_END
+
 
 namespace fl {
 
@@ -32,7 +31,7 @@ class EngineEvents {
         virtual void onBeginFrame() {}
         virtual void onEndShowLeds() {}
         virtual void onEndFrame() {}
-        virtual void onStripAdded(CLEDController *strip, uint32_t num_leds) {
+        virtual void onStripAdded(CLEDController *strip, fl::u32 num_leds) {
             (void)strip;
             (void)num_leds;
         }
@@ -90,7 +89,7 @@ class EngineEvents {
 #endif
     }
 
-    static void onStripAdded(CLEDController *strip, uint32_t num_leds) {
+    static void onStripAdded(CLEDController *strip, fl::u32 num_leds) {
 #if FASTLED_HAS_ENGINE_EVENTS
         EngineEvents::getInstance()->_onStripAdded(strip, num_leds);
 #else
@@ -125,7 +124,7 @@ class EngineEvents {
     void _onBeginFrame();
     void _onEndShowLeds();
     void _onEndFrame();
-    void _onStripAdded(CLEDController *strip, uint32_t num_leds);
+    void _onStripAdded(CLEDController *strip, fl::u32 num_leds);
     void _onCanvasUiSet(CLEDController *strip, const ScreenMap &xymap);
     void _onPlatformPreLoop();
     bool _hasListener(Listener *listener);
@@ -137,19 +136,15 @@ class EngineEvents {
         Pair(Listener *listener, int priority)
             : listener(listener), priority(priority) {}
     };
-#if defined(__EMSCRIPTEN__) && 0
-    // Not sure what is going on here, but emscripten seems to have a problem
-    // with FixedVector.
-    typedef fl::vector<Pair> ListenerList;
-#else
+
     typedef fl::vector_inlined<Pair, 16> ListenerList;
-#endif
     ListenerList mListeners;
-#endif
+
 
     static EngineEvents *getInstance();
 
     friend class fl::Singleton<EngineEvents>;
+#endif  // FASTLED_HAS_ENGINE_EVENTS
 };
 
 } // namespace fl

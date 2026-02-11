@@ -1,9 +1,11 @@
 #include "fl/engine_events.h"
 #include "fl/namespace.h"
+#include "fl/int.h"
 
-using namespace fl;
 
-FASTLED_NAMESPACE_BEGIN
+namespace fl {
+
+
 
 EngineEvents::Listener::Listener() {}
 
@@ -22,13 +24,11 @@ EngineEvents::Listener::~Listener() {
 #endif
 }
 
-EngineEvents *EngineEvents::getInstance() {
 #if FASTLED_HAS_ENGINE_EVENTS
+EngineEvents *EngineEvents::getInstance() {
     return &Singleton<EngineEvents>::instance();
-#else
-    return nullptr; // strip out when engine events are disabled.
-#endif
 }
+#endif
 
 #if FASTLED_HAS_ENGINE_EVENTS
 void EngineEvents::_onPlatformPreLoop() {
@@ -105,7 +105,7 @@ void EngineEvents::_onEndFrame() {
     }
 }
 
-void EngineEvents::_onStripAdded(CLEDController *strip, uint32_t num_leds) {
+void EngineEvents::_onStripAdded(CLEDController *strip, fl::u32 num_leds) {
     // Make the copy of the listener list to avoid issues with listeners being
     // added or removed during the loop.
     ListenerList copy = mListeners;
@@ -128,4 +128,4 @@ void EngineEvents::_onCanvasUiSet(CLEDController *strip,
 
 #endif // FASTLED_HAS_ENGINE_EVENTS
 
-FASTLED_NAMESPACE_END
+} // namespace fl

@@ -8,7 +8,6 @@
 // Animated, ever-changing rainbows.
 // by Mark Kriegsman
 
-
 #define DATA_PIN    3
 //#define CLK_PIN   4
 #define LED_TYPE    WS2811
@@ -31,6 +30,7 @@ void setup() {
   FastLED.setBrightness(BRIGHTNESS);
 }
 
+void pride();
 
 void loop()
 {

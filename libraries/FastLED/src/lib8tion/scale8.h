@@ -1,13 +1,17 @@
+#include "fl/compiler_control.h"
+
 #pragma once
 
-#include "lib8static.h"
+#include "lib8tion/config.h"
 #include "crgb.h"
 #include "fl/namespace.h"
 #include "fastled_config.h"
+#include "lib8static.h"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#pragma GCC diagnostic ignored "-Wreturn-type"
+FL_DISABLE_WARNING_PUSH
+FL_DISABLE_WARNING_UNUSED_PARAMETER
+FL_DISABLE_WARNING_RETURN_TYPE
+FL_DISABLE_WARNING_IMPLICIT_INT_CONVERSION
 
 
 FASTLED_NAMESPACE_BEGIN
@@ -536,6 +540,7 @@ LIB8STATIC_ALWAYS_INLINE uint16_t scale16by8(uint16_t i, fract8 scale) {
 #error "No implementation for scale16by8 available."
 #endif
 }
+
 
 /// Scale a 16-bit unsigned value by an 16-bit value, which is treated
 /// as the numerator of a fraction whose denominator is 65536.

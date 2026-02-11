@@ -2,7 +2,7 @@
 
 #include "fl/colorutils.h"
 #include "fl/function.h"
-#include "fl/slice.h"
+#include "fl/span.h"
 #include "fl/type_traits.h"
 #include "fl/variant.h"
 
@@ -15,7 +15,7 @@ class GradientInlined;
 
 class Gradient {
   public:
-    using GradientFunction = fl::function<CRGB(uint8_t index)>;
+    using GradientFunction = fl::function<CRGB(u8 index)>;
     Gradient() = default;
     Gradient(const GradientInlined &other);
 
@@ -31,8 +31,8 @@ class Gradient {
     void set(const CRGBPalette256 *palette);
     void set(const GradientFunction &func);
 
-    CRGB colorAt(uint8_t index) const;
-    void fill(Slice<const uint8_t> input, Slice<CRGB> output) const;
+    CRGB colorAt(u8 index) const;
+    void fill(span<const u8> input, span<CRGB> output) const;
 
   private:
     using GradientVariant =
@@ -43,22 +43,23 @@ class Gradient {
 
 class GradientInlined {
   public:
-    using GradientFunction = fl::function<CRGB(uint8_t index)>;
+    using GradientFunction = fl::function<CRGB(u8 index)>;
     using GradientVariant =
         Variant<CRGBPalette16, CRGBPalette32, CRGBPalette256, GradientFunction>;
     GradientInlined() = default;
 
     template <typename T> GradientInlined(const T &palette) { set(palette); }
 
-    GradientInlined(const GradientInlined &other) : mVariant(other.mVariant) {}
+    GradientInlined(const GradientInlined &other) = default;
+    GradientInlined &operator=(const GradientInlined &other) = default;
 
     void set(const CRGBPalette16 &palette) { mVariant = palette; }
     void set(const CRGBPalette32 &palette) { mVariant = palette; }
     void set(const CRGBPalette256 &palette) { mVariant = palette; }
     void set(const GradientFunction &func) { mVariant = func; }
 
-    CRGB colorAt(uint8_t index) const;
-    void fill(Slice<const uint8_t> input, Slice<CRGB> output) const;
+    CRGB colorAt(u8 index) const;
+    void fill(span<const u8> input, span<CRGB> output) const;
 
     GradientVariant &variant() { return mVariant; }
     const GradientVariant &variant() const { return mVariant; }

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "digital_pin.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/ui.h"
 #include "fl/time_alpha.h"
 

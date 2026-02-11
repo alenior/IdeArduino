@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include <ESPAsyncWebServer.h>
 
@@ -15,14 +15,14 @@ const AsyncWebHeader AsyncWebHeader::parse(const char *data) {
   if (strchr(data, '\n') || strchr(data, '\r')) {
     return AsyncWebHeader();  // Invalid header format
   }
-  char *colon = strchr(data, ':');
+  const char *colon = strchr(data, ':');
   if (!colon) {
     return AsyncWebHeader();  // separator not found
   }
   if (colon == data) {
     return AsyncWebHeader();  // Header name cannot be empty
   }
-  char *startOfValue = colon + 1;  // Skip the colon
+  const char *startOfValue = colon + 1;  // Skip the colon
   // skip one optional whitespace after the colon
   if (*startOfValue == ' ') {
     startOfValue++;

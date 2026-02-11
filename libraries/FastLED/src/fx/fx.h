@@ -1,12 +1,12 @@
 #pragma once
 
-#include <stdint.h>
+#include "fl/stdint.h"
 
 #include "crgb.h"
 #include "detail/draw_context.h"
 #include "detail/transition.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/str.h"
 #include "fl/unused.h"
 
@@ -15,7 +15,7 @@ namespace fl {
 FASTLED_SMART_PTR(Fx);
 
 // Abstract base class for effects on a strip/grid of LEDs.
-class Fx : public fl::Referent {
+class Fx {
   public:
     // Alias DrawContext for use within Fx
     using DrawContext = _DrawContext;
@@ -37,11 +37,11 @@ class Fx : public fl::Referent {
     }
 
     // Get the name of the current fx.
-    virtual fl::Str fxName() const = 0;
+    virtual fl::string fxName() const = 0;
 
     // Called when the fx is paused, usually when a transition has finished.
-    virtual void pause(uint32_t now) { FASTLED_UNUSED(now); }
-    virtual void resume(uint32_t now) {
+    virtual void pause(fl::u32 now) { FASTLED_UNUSED(now); }
+    virtual void resume(fl::u32 now) {
         FASTLED_UNUSED(now);
     } // Called when the fx is resumed after a pause,
       // usually when a transition has started.

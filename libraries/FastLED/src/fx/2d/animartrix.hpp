@@ -10,8 +10,8 @@
 #include "crgb.h"
 #include "fl/dbg.h"
 #include "fl/namespace.h"
-#include "fl/ptr.h"
-#include "fl/scoped_ptr.h"
+#include "fl/memory.h"
+#include "fl/unique_ptr.h"
 #include "fl/xymap.h"
 #include "fx/fx2d.h"
 #include "eorder.h"
@@ -79,10 +79,12 @@ enum AnimartrixAnim {
     NUM_ANIMATIONS
 };
 
+fl::string getAnimartrixName(int animation);
+
 class FastLEDANIMartRIX;
 class Animartrix : public Fx2d {
   public:
-    Animartrix(XYMap xyMap, AnimartrixAnim which_animation) : Fx2d(xyMap) {
+    Animartrix(const XYMap& xyMap, AnimartrixAnim which_animation) : Fx2d(xyMap) {
         // Note: Swapping out height and width.
         this->current_animation = which_animation;
         mXyMap.convertToLookUpTable();
@@ -99,17 +101,17 @@ class Animartrix : public Fx2d {
     EOrder getColorOrder() const { return color_order; }
 
   private:
-    friend void AnimartrixLoop(Animartrix &self, uint32_t now);
+    friend void AnimartrixLoop(Animartrix &self, fl::u32 now);
     friend class FastLEDANIMartRIX;
-    static const char *getAnimationName(AnimartrixAnim animation);
+    static const char *getAnimartrixName(AnimartrixAnim animation);
     AnimartrixAnim prev_animation = NUM_ANIMATIONS;
-    fl::scoped_ptr<FastLEDANIMartRIX> impl;
+    fl::unique_ptr<FastLEDANIMartRIX> impl;
     CRGB *leds = nullptr; // Only set during draw, then unset back to nullptr.
     AnimartrixAnim current_animation = RGB_BLOBS5;
     EOrder color_order = RGB;
 };
 
-void AnimartrixLoop(Animartrix &self, uint32_t now);
+void AnimartrixLoop(Animartrix &self, fl::u32 now);
 
 /// ##################################################
 /// Details with the implementation of Animartrix
@@ -126,7 +128,7 @@ class FastLEDANIMartRIX : public animartrix_detail::ANIMartRIX {
   public:
     FastLEDANIMartRIX(Animartrix *_data) {
         this->data = _data;
-        this->init(data->getWidth(), data->getWidth());
+        this->init(data->getWidth(), data->getHeight());
     }
 
     void setPixelColor(int x, int y, CRGB pixel) {
@@ -154,10 +156,10 @@ void Animartrix::fxSet(int fx) {
     }
     fx = fx % NUM_ANIMATIONS;
     current_animation = static_cast<AnimartrixAnim>(fx);
-    FASTLED_DBG("Setting animation to " << getAnimationName(current_animation));
+    FASTLED_DBG("Setting animation to " << getAnimartrixName(current_animation));
 }
 
-void AnimartrixLoop(Animartrix &self, uint32_t now) {
+void AnimartrixLoop(Animartrix &self, fl::u32 now) {
     if (self.prev_animation != self.current_animation) {
         if (self.impl) {
             // Re-initialize object.
@@ -244,6 +246,13 @@ static const AnimartrixEntry ANIMATION_TABLE[] = {
      &FastLEDANIMartRIX::SM10},
 };
 
+fl::string getAnimartrixName(int animation) {
+    if (animation < 0 || animation >= NUM_ANIMATIONS) {
+        return "UNKNOWN";
+    }
+    return ANIMATION_TABLE[animation].name;
+}
+
 void FastLEDANIMartRIX::loop() {
     for (const auto &entry : ANIMATION_TABLE) {
         if (entry.anim == data->current_animation) {
@@ -255,7 +264,7 @@ void FastLEDANIMartRIX::loop() {
     FASTLED_DBG("Animation not found for " << int(data->current_animation));
 }
 
-const char *Animartrix::getAnimationName(AnimartrixAnim animation) {
+const char *Animartrix::getAnimartrixName(AnimartrixAnim animation) {
     for (const auto &entry : ANIMATION_TABLE) {
         if (entry.anim == animation) {
             return entry.name;

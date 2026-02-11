@@ -2,86 +2,104 @@
 
 /**
  * @file corkscrew.h
- * @brief Corkscrew projection utilities
+ * @brief Corkscrew LED strip projection and rendering
  *
- * You want to draw on a rectangular surface, and have it map to a GOD DAMN
- * CORKSCREW! Well guess what, this is the file for you.
+ * The Corkscrew class provides a complete solution for drawing to densely-wrapped
+ * helical LED strips. It maps a cylindrical coordinate system to a linear LED
+ * strip, allowing you to draw on a rectangular surface and have it correctly
+ * projected onto the corkscrew topology.
  *
- * Corkscrew projection maps from Corkscrew angle height, (θ, h)  to Cylindrical
- * cartesian (w, h) space, where w = one turn of the Corkscrew. The corkscrew at
- * (0) will map to the first index in the cylinder map at (0, 0). The last value
- * is probly not at the max pixel value at (width - 1, height - 1), but could
- * be.
+ * Usage:
+ * 1. Create a Corkscrew with the number of turns and LEDs
+ * 2. Draw patterns on the input surface using surface()
+ * 3. Call draw() to map the surface to LED pixels
+ * 4. Access the final LED data via rawData()
  *
+ * The class handles:
+ * - Automatic cylindrical dimension calculation
+ * - Pixel storage (external span or internal allocation)
+ * - Multi-sampling for smooth projections
+ * - Gap compensation for non-continuous wrapping
+ * - Iterator interface for advanced coordinate access
  *
- * Inputs:
- * - Total Height of the Corkscrew in centimeters
- * - Total angle of the Corkscrew (number of veritcal segments × 2π)
- * - Optional offset circumference (default 0)
- *   - Allows pixel-perfect corkscrew with gaps via circumference offsetting
- *   - Example (accounting for gaps):
- *     - segment 0: offset circumference = 0, circumference = 100
- *     - segment 1: offset circumference = 100.5, circumference = 100
- *     - segment 2: offset circumference = 101, circumference = 100
- *
- * Outputs:
- * - Width and Height of the cylindrical map
- *   - Width is the circumference of one turn
- *   - Height is the total number of vertical segments
- * - Vector of vec2f {width, height} mapping corkscrew (r,c) to cylindrical
- * {w,h}
+ * Parameters:
+ * - totalTurns: Number of helical turns around the cylinder
+ * - numLeds: Total number of LEDs in the strip
+ * - invert: Reverse the mapping direction (default: false)
+ * - gapParams: Optional gap compensation for solder points in a strip.
  */
 
 #include "fl/allocator.h"
 #include "fl/geometry.h"
+#include "fl/math.h"
 #include "fl/math_macros.h"
 #include "fl/pair.h"
 #include "fl/tile2x2.h"
 #include "fl/vector.h"
+#include "fl/shared_ptr.h"
+#include "fl/variant.h"
+#include "fl/span.h"
+#include "crgb.h"
+#include "fl/int.h"
 
 namespace fl {
 
+// Forward declarations
+class Leds;
+class ScreenMap;
+template<typename T> class Grid;
+
+// Simple constexpr functions for compile-time corkscrew dimension calculation
+constexpr fl::u16 calculateCorkscrewWidth(float totalTurns, fl::u16 numLeds) {
+    return static_cast<fl::u16>(ceil_constexpr(static_cast<float>(numLeds) / totalTurns));
+}
+
+constexpr fl::u16 calculateCorkscrewHeight(float totalTurns, fl::u16 numLeds) {
+    return (calculateCorkscrewWidth(totalTurns, numLeds) * static_cast<int>(ceil_constexpr(totalTurns)) > numLeds) ?
+        static_cast<fl::u16>(ceil_constexpr(static_cast<float>(numLeds) / static_cast<float>(calculateCorkscrewWidth(totalTurns, numLeds)))) :
+        static_cast<fl::u16>(ceil_constexpr(totalTurns));
+}
+
 /**
- * Generates a mapping from corkscrew to cylindrical coordinates
- * @param input The input parameters defining the corkscrew.
- * @return The resulting cylindrical mapping.
+ * Struct representing gap parameters for corkscrew mapping
  */
-struct CorkscrewInput {
-    float totalLength = 100;   // Total length of the corkscrew in centimeters,
-                               // set to dense 144 strips.
-    float totalHeight = 23.25; // Total height of the corkscrew in centimeters
-                               // for 144 densly wrapped up over 19 turns
-    float totalTurns = 19.f;   // Default to 19 turns
-    float offsetCircumference = 0; // Optional offset for gap accounting
-    uint16_t numLeds = 144;        // Default to dense 144 leds.
-    bool invert = false;           // If true, reverse the mapping order
-    CorkscrewInput() = default;
-    CorkscrewInput(float total_length, float height, float total_turns,
-                   uint16_t leds, float offset = 0,
-                   bool invertMapping = false)
-        : totalLength(total_length), totalHeight(height),
-          totalTurns(total_turns), offsetCircumference(offset), numLeds(leds),
-          invert(invertMapping) {}
+struct Gap {
+    int num_leds = 0;   // Number of LEDs after which gap is activated, 0 = no gap
+    float gap = 0.0f;   // Gap value from 0 to 1, represents percentage of width unit to add
+    
+    Gap() = default;
+    Gap(float g) : num_leds(0), gap(g) {} // Backwards compatibility constructor
+    Gap(int n, float g) : num_leds(n), gap(g) {} // New constructor with num_leds
+    
+    // Rule of 5 for POD data
+    Gap(const Gap &other) = default;
+    Gap &operator=(const Gap &other) = default;
+    Gap(Gap &&other) noexcept = default;
+    Gap &operator=(Gap &&other) noexcept = default;
 };
 
-struct CorkscrewState {
-    uint16_t width = 0;  // Width of cylindrical map (circumference of one turn)
-    uint16_t height = 0; // Height of cylindrical map (total vertical segments)
-    fl::vector<fl::vec2f, fl::allocator_psram<fl::vec2f>>
-        mapping; // Full precision mapping from corkscrew to cylindrical
-    CorkscrewState() = default;
 
+
+// Maps a Corkscrew defined by the input to a cylindrical mapping for rendering
+// a densly wrapped LED corkscrew.
+class Corkscrew {
+  public:
+    
+    // Pixel storage variants - can hold either external span or owned vector
+    using PixelStorage = fl::Variant<fl::span<CRGB>, fl::vector<CRGB, fl::allocator_psram<CRGB>>>;
+
+    // Iterator class moved from CorkscrewState
     class iterator {
       public:
         using value_type = vec2f;
-        using difference_type = int32_t;
+        using difference_type = fl::i32;
         using pointer = vec2f *;
         using reference = vec2f &;
 
-        iterator(CorkscrewState *owner, size_t position)
-            : owner_(owner), position_(position) {}
+        iterator(const Corkscrew *corkscrew, fl::size position)
+            : corkscrew_(corkscrew), position_(position) {}
 
-        vec2f &operator*() const { return owner_->mapping[position_]; }
+        vec2f operator*() const;
 
         iterator &operator++() {
             ++position_;
@@ -119,48 +137,68 @@ struct CorkscrewState {
         }
 
       private:
-        CorkscrewState *owner_;
-        size_t position_;
+        const Corkscrew *corkscrew_;
+        fl::size position_;
     };
 
-    iterator begin() { return iterator(this, 0); }
-
-    iterator end() { return iterator(this, mapping.size()); }
-};
-
-// Maps a Corkscrew defined by the input to a cylindrical mapping for rendering
-// a densly wrapped LED corkscrew.
-class Corkscrew {
-  public:
-    using Input = CorkscrewInput;
-    using State = CorkscrewState;
-    using iterator = CorkscrewState::iterator;
-
-    Corkscrew(const Input &input);
+    // Constructors that integrate input parameters directly
+    // Primary constructor with default values for invert and gapParams
+    Corkscrew(float totalTurns, fl::u16 numLeds, bool invert = false, const Gap& gapParams = Gap());
+    
+    // Constructor with external pixel buffer - these pixels will be drawn to directly
+    Corkscrew(float totalTurns, fl::span<CRGB> dstPixels, bool invert = false, const Gap& gapParams = Gap());
+    
+    
     Corkscrew(const Corkscrew &) = default;
     Corkscrew(Corkscrew &&) = default;
 
-    vec2f at_exact(uint16_t i) const;
 
-    // This is the future api.
+    // Caching control
+    void setCachingEnabled(bool enabled);
+
+    // Essential API - Core functionality
+    fl::u16 cylinderWidth() const { return mWidth; }
+    fl::u16 cylinderHeight() const { return mHeight; }
+
+    // Enhanced surface handling with shared_ptr
+    // Note: Input surface will be created on first call
+    fl::shared_ptr<fl::Grid<CRGB>>& getOrCreateInputSurface();
+    
+    // Draw like a regular rectangle surface - access input surface directly
+    fl::Grid<CRGB>& surface();
+
+    
+    // Draw the corkscrew by reading from the internal surface and populating LED pixels
+    void draw(bool use_multi_sampling = true);
+
+    // Pixel storage access - works with both external and owned pixels
+    // This represents the pixels that will be drawn after draw() is called
+    CRGB* rawData();
+    
+    // Returns span of pixels that will be written to when draw() is called
+    fl::span<CRGB> data();
+    
+    fl::size pixelCount() const;
+    // Create and return a fully constructed ScreenMap for this corkscrew
+    // Each LED index will be mapped to its exact position on the cylindrical surface
+    fl::ScreenMap toScreenMap(float diameter = 0.5f) const;
+
+    // STL-style container interface
+    fl::size size() const;
+    iterator begin() { return iterator(this, 0); }
+    iterator end() { return iterator(this, size()); }
+
+    // Non-essential API - Lower level access
+    vec2f at_no_wrap(fl::u16 i) const;
+    vec2f at_exact(fl::u16 i) const;
     Tile2x2_u8_wrap at_wrap(float i) const;
 
-    size_t size() const;
+    // Clear all buffers and free memory
+    void clear();
+    
+    // Fill the input surface with a color
+    void fillInputSurface(const CRGB& color);
 
-    iterator begin() { return mState.begin(); }
-
-    iterator end() { return mState.end(); }
-
-    /// For testing
-
-    static State generateState(const Input &input);
-
-    State &access() { return mState; }
-
-    const State &access() const { return mState; }
-
-    int16_t cylinder_width() const { return mState.width; }
-    int16_t cylinder_height() const { return mState.height; }
 
   private:
     // For internal use. Splats the pixel on the surface which
@@ -168,8 +206,46 @@ class Corkscrew {
     // to be wrapped around with a Tile2x2_u8_wrap.
     Tile2x2_u8 at_splat_extrapolate(float i) const;
 
-    Input mInput; // The input parameters defining the corkscrew
-    State mState; // The resulting cylindrical mapping
+    // Read from fl::Grid<CRGB> object and populate our internal rectangular buffer
+    // by sampling from the XY coordinates mapped to each corkscrew LED position
+    // use_multi_sampling = true will use multi-sampling to sample from the source grid,
+    // this will give a little bit better accuracy and the screenmap will be more accurate.
+    void readFrom(const fl::Grid<CRGB>& source_grid, bool use_multi_sampling = true);
+    
+    // Read from rectangular buffer using multi-sampling and store in target grid
+    // Uses Tile2x2_u8_wrap for sub-pixel accurate sampling with proper blending
+    void readFromMulti(const fl::Grid<CRGB>& target_grid) const;
+    
+    // Initialize the rectangular buffer if not already done
+    void initializeBuffer() const;
+    
+    // Initialize the cache if not already done and caching is enabled
+    void initializeCache() const;
+    
+    // Calculate the tile at position i without using cache
+    Tile2x2_u8_wrap calculateTileAtWrap(float i) const;
+
+    // Core corkscrew parameters (moved from CorkscrewInput)
+    float mTotalTurns = 19.0f;   // Total turns of the corkscrew
+    fl::u16 mNumLeds = 144;      // Number of LEDs
+    Gap mGapParams;              // Gap parameters for gap accounting  
+    bool mInvert = false;        // If true, reverse the mapping order
+    
+    // Cylindrical mapping dimensions (moved from CorkscrewState)
+    fl::u16 mWidth = 0;          // Width of cylindrical map (circumference of one turn)
+    fl::u16 mHeight = 0;         // Height of cylindrical map (total vertical segments)
+    
+    // Enhanced pixel storage - variant supports both external and owned pixels
+    PixelStorage mPixelStorage;
+    bool mOwnsPixels = false; // Track whether we own the pixel data
+    
+    // Input surface for drawing operations
+    fl::shared_ptr<fl::Grid<CRGB>> mInputSurface;
+    
+    // Caching for Tile2x2_u8_wrap objects
+    mutable fl::vector<Tile2x2_u8_wrap> mTileCache;
+    mutable bool mCacheInitialized = false;
+    bool mCachingEnabled = true; // Default to enabled
 };
 
 } // namespace fl

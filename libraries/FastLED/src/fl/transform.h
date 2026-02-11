@@ -10,7 +10,7 @@ expensive trig functions are needed. Same with scale and offset.
 
 #include "fl/lut.h"
 #include "fl/math_macros.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/xymap.h"
 #include "lib8tion/types.h"
 
@@ -19,7 +19,7 @@ namespace fl {
 FASTLED_SMART_PTR(TransformFloatImpl);
 
 using alpha16 =
-    uint16_t; // fixed point representation of 0->1 in the range [0, 65535]
+    u16; // fixed point representation of 0->1 in the range [0, 65535]
 
 // This transform assumes the coordinates are in the range [0,65535].
 struct Transform16 {
@@ -29,7 +29,7 @@ struct Transform16 {
     static Transform16 ToBounds(const vec2<alpha16> &min,
                                 const vec2<alpha16> &max, alpha16 rotation = 0);
 
-    static Transform16 From(uint16_t width, uint16_t height) {
+    static Transform16 From(u16 width, u16 height) {
         vec2<alpha16> min = vec2<alpha16>(0, 0);
         vec2<alpha16> max = vec2<alpha16>(width, height);
         return Transform16::ToBounds(min, max);
@@ -39,6 +39,11 @@ struct Transform16 {
     //     return Transform16::ToBounds(map.getWidth(), map.getHeight());
     // }
     Transform16() = default;
+    
+    // Use default move constructor and assignment operator for POD data
+    Transform16(Transform16 &&other) noexcept = default;
+    Transform16 &operator=(Transform16 &&other) noexcept = default;
+    
     alpha16 scale_x = 0xffff;
     alpha16 scale_y = 0xffff;
     alpha16 offset_x = 0;
@@ -49,13 +54,14 @@ struct Transform16 {
 };
 
 // This transform assumes the coordinates are in the range [0,1].
-class TransformFloatImpl : public Referent {
+class TransformFloatImpl {
   public:
     static TransformFloatImplPtr Identity() {
-        TransformFloatImplPtr tx = TransformFloatImplPtr::New();
+        TransformFloatImplPtr tx = fl::make_shared<TransformFloatImpl>();
         return tx;
     }
     TransformFloatImpl() = default;
+    virtual ~TransformFloatImpl() = default; // Add virtual destructor for proper cleanup
     float scale_x = 1.0f;
     float scale_y = 1.0f;
     float offset_x = 0.0f;
@@ -69,10 +75,17 @@ class TransformFloatImpl : public Referent {
 
 // Future usage.
 struct Matrix3x3f {
+    Matrix3x3f() = default;
+    Matrix3x3f(const Matrix3x3f &) = default;
+    Matrix3x3f &operator=(const Matrix3x3f &) = default;
+    Matrix3x3f(Matrix3x3f &&) noexcept = default;
+    Matrix3x3f &operator=(Matrix3x3f &&) noexcept = default;
+    
     static Matrix3x3f Identity() {
         Matrix3x3f m;
         return m;
     }
+    
     vec2<float> transform(const vec2<float> &xy) const {
         vec2<float> out;
         out.x = m[0][0] * xy.x + m[0][1] * xy.y + m[0][2];

@@ -2,13 +2,14 @@
 
 // Note, fs.h breaks ESPAsyncWebServer so we use file_system.h instead.
 
-#include <stddef.h>
-#include <stdint.h>
+#include "fl/stdint.h"
+#include "fl/int.h"
 
 #include "fl/namespace.h"
-#include "fl/ptr.h"
+#include "fl/memory.h"
 #include "fl/str.h"
 #include "fx/video.h"
+#include "fl/screenmap.h"
 
 namespace fl {
 
@@ -30,9 +31,11 @@ class ScreenMap;
 FASTLED_SMART_PTR(FileSystem);
 FASTLED_SMART_PTR(FileHandle);
 class Video;
-template <typename Key, typename Value, size_t N> class FixedMap;
+template <typename Key, typename Value, fl::size N> class FixedMap;
 
-class JsonDocument;
+namespace json2 {
+class Json;
+}
 
 class FileSystem {
   public:
@@ -45,14 +48,14 @@ class FileSystem {
     FileHandlePtr
     openRead(const char *path); // Null if file could not be opened.
     Video
-    openVideo(const char *path, size_t pixelsPerFrame, float fps = 30.0f,
-              size_t nFrameHistory = 0); // Null if video could not be opened.
-    bool readText(const char *path, Str *out);
-    bool readJson(const char *path, JsonDocument *doc);
-    bool readScreenMaps(const char *path, FixedMap<Str, ScreenMap, 16> *out,
-                        Str *error = nullptr);
+    openVideo(const char *path, fl::size pixelsPerFrame, float fps = 30.0f,
+              fl::size nFrameHistory = 0); // Null if video could not be opened.
+    bool readText(const char *path, string *out);
+    bool readJson(const char *path, Json *doc);
+    bool readScreenMaps(const char *path, fl::fl_map<string, ScreenMap> *out,
+                        string *error = nullptr);
     bool readScreenMap(const char *path, const char *name, ScreenMap *out,
-                       Str *error = nullptr);
+                       string *error = nullptr);
     void close(FileHandlePtr file);
 
   private:
@@ -61,27 +64,27 @@ class FileSystem {
 
 // An abstract class that represents a file handle.
 // Devices like the SD card will return one of these.
-class FileHandle : public Referent {
+class FileHandle {
   public:
     virtual ~FileHandle() {}
     virtual bool available() const = 0;
-    virtual size_t bytesLeft() const;
-    virtual size_t size() const = 0;
-    virtual size_t read(uint8_t *dst, size_t bytesToRead) = 0;
-    virtual size_t pos() const = 0;
+    virtual fl::size bytesLeft() const;
+    virtual fl::size size() const = 0;
+    virtual fl::size read(fl::u8 *dst, fl::size bytesToRead) = 0;
+    virtual fl::size pos() const = 0;
     virtual const char *path() const = 0;
-    virtual bool seek(size_t pos) = 0;
+    virtual bool seek(fl::size pos) = 0;
     virtual void close() = 0;
     virtual bool valid() const = 0;
 
     // convenience functions
-    size_t readCRGB(CRGB *dst, size_t n) {
-        return read((uint8_t *)dst, n * 3) / 3;
+    fl::size readCRGB(CRGB *dst, fl::size n) {
+        return read((fl::u8 *)dst, n * 3) / 3;
     }
 };
 
 // Platforms will subclass this to implement the filesystem.
-class FsImpl : public Referent {
+class FsImpl {
   public:
     struct Visitor {
         virtual ~Visitor() {}

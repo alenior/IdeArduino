@@ -1,36 +1,42 @@
-
 #pragma once
 
 #include "fl/str.h"
-#include "fl/template_magic.h"
-#include <stdint.h>
+#include "fl/type_traits.h"
+#include "fl/int.h"
+#include "fl/stdint.h"
+#include "fl/force_inline.h"
+#include "fl/memfill.h"
 #include <string.h>
+#include "fl/compiler_control.h"
 
 namespace fl {
 
 template <typename T> struct vec2;
+
+
 
 //-----------------------------------------------------------------------------
 // MurmurHash3 x86 32-bit
 //-----------------------------------------------------------------------------
 // Based on the public‐domain implementation by Austin Appleby:
 // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
-static inline uint32_t MurmurHash3_x86_32(const void *key, size_t len,
-                                          uint32_t seed = 0) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+static inline u32 MurmurHash3_x86_32(const void *key, fl::size len,
+                                          u32 seed = 0) {
 
-    const uint8_t *data = static_cast<const uint8_t *>(key);
+    FL_DISABLE_WARNING_PUSH;
+    FL_DISABLE_WARNING_IMPLICIT_FALLTHROUGH;
+
+    const fl::u8 *data = static_cast<const fl::u8 *>(key);
     const int nblocks = int(len / 4);
 
-    uint32_t h1 = seed;
-    const uint32_t c1 = 0xcc9e2d51;
-    const uint32_t c2 = 0x1b873593;
+    u32 h1 = seed;
+    const u32 c1 = 0xcc9e2d51;
+    const u32 c2 = 0x1b873593;
 
     // body
-    const uint32_t *blocks = reinterpret_cast<const uint32_t *>(data);
+    const u32 *blocks = reinterpret_cast<const u32 *>(data);
     for (int i = 0; i < nblocks; ++i) {
-        uint32_t k1 = blocks[i];
+        u32 k1 = blocks[i];
         k1 *= c1;
         k1 = (k1 << 15) | (k1 >> 17);
         k1 *= c2;
@@ -41,15 +47,15 @@ static inline uint32_t MurmurHash3_x86_32(const void *key, size_t len,
     }
 
     // tail
-    const uint8_t *tail = data + (nblocks * 4);
-    uint32_t k1 = 0;
+    const fl::u8 *tail = data + (nblocks * 4);
+    u32 k1 = 0;
     switch (len & 3) {
     case 3:
-        k1 ^= uint32_t(tail[2]) << 16;
+        k1 ^= u32(tail[2]) << 16;
     case 2:
-        k1 ^= uint32_t(tail[1]) << 8;
+        k1 ^= u32(tail[1]) << 8;
     case 1:
-        k1 ^= uint32_t(tail[0]);
+        k1 ^= u32(tail[0]);
         k1 *= c1;
         k1 = (k1 << 15) | (k1 >> 17);
         k1 *= c2;
@@ -57,7 +63,7 @@ static inline uint32_t MurmurHash3_x86_32(const void *key, size_t len,
     }
 
     // finalization
-    h1 ^= uint32_t(len);
+    h1 ^= u32(len);
     // fmix32
     h1 ^= h1 >> 16;
     h1 *= 0x85ebca6b;
@@ -67,13 +73,13 @@ static inline uint32_t MurmurHash3_x86_32(const void *key, size_t len,
 
     return h1;
 
-#pragma GCC diagnostic pop
+    FL_DISABLE_WARNING_POP;
 }
 
 //-----------------------------------------------------------------------------
 // Fast, cheap 32-bit integer hash (Thomas Wang)
 //-----------------------------------------------------------------------------
-static inline uint32_t fast_hash32(uint32_t x) noexcept {
+static inline u32 fast_hash32(u32 x) noexcept {
     x = (x ^ 61u) ^ (x >> 16);
     x = x + (x << 3);
     x = x ^ (x >> 4);
@@ -83,11 +89,17 @@ static inline uint32_t fast_hash32(uint32_t x) noexcept {
 }
 
 // 3) Handy two-word hasher
-static inline uint32_t hash_pair(uint32_t a, uint32_t b,
-                                 uint32_t seed = 0) noexcept {
+static inline u32 hash_pair(u32 a, u32 b,
+                                 u32 seed = 0) noexcept {
     // mix in 'a', then mix in 'b'
-    uint32_t h = fast_hash32(seed ^ a);
+    u32 h = fast_hash32(seed ^ a);
     return fast_hash32(h ^ b);
+}
+
+static inline u32 fast_hash64(u64 x) noexcept {
+    u32 x1 = static_cast<u32>(x & 0x00000000FFFFFFFF);
+    u32 x2 = static_cast<u32>(x >> 32);
+    return hash_pair(x1, x2);
 }
 
 //-----------------------------------------------------------------------------
@@ -98,7 +110,7 @@ template <typename T> struct Hash {
     static_assert(fl::is_pod<T>::value,
                   "fl::Hash<T> only supports POD types (integrals, floats, "
                   "etc.), you need to define your own hash.");
-    uint32_t operator()(const T &key) const noexcept {
+    u32 operator()(const T &key) const noexcept {
         return MurmurHash3_x86_32(&key, sizeof(T));
     }
 };
@@ -107,24 +119,24 @@ template <typename T> struct FastHash {
     static_assert(fl::is_pod<T>::value,
                   "fl::FastHash<T> only supports POD types (integrals, floats, "
                   "etc.), you need to define your own hash.");
-    uint32_t operator()(const T &key) const noexcept {
+    u32 operator()(const T &key) const noexcept {
         return fast_hash32(key);
     }
 };
 
 template <typename T> struct FastHash<vec2<T>> {
-    uint32_t operator()(const vec2<T> &key) const noexcept {
-        if (sizeof(T) == sizeof(uint8_t)) {
-            uint32_t x = static_cast<uint32_t>(key.x) +
-                         (static_cast<uint32_t>(key.y) << 8);
+    u32 operator()(const vec2<T> &key) const noexcept {
+        if (sizeof(T) == sizeof(fl::u8)) {
+            u32 x = static_cast<u32>(key.x) +
+                         (static_cast<u32>(key.y) << 8);
             return fast_hash32(x);
         }
-        if (sizeof(T) == sizeof(uint16_t)) {
-            uint32_t x = static_cast<uint32_t>(key.x) +
-                         (static_cast<uint32_t>(key.y) << 16);
+        if (sizeof(T) == sizeof(u16)) {
+            u32 x = static_cast<u32>(key.x) +
+                         (static_cast<u32>(key.y) << 16);
             return fast_hash32(x);
         }
-        if (sizeof(T) == sizeof(uint32_t)) {
+        if (sizeof(T) == sizeof(u32)) {
             return hash_pair(key.x, key.y);
         }
         return MurmurHash3_x86_32(&key, sizeof(T));
@@ -132,21 +144,23 @@ template <typename T> struct FastHash<vec2<T>> {
 };
 
 template <typename T> struct Hash<T *> {
-    uint32_t operator()(const T *key) const noexcept {
-        return fast_hash32(key, sizeof(T *));
+    u32 operator()(T *key) const noexcept {
+        if (sizeof(T *) == sizeof(u32)) {
+            u32 key_u = reinterpret_cast<fl::uptr>(key);
+            return fast_hash32(key_u);
+        } else {
+            return MurmurHash3_x86_32(key, sizeof(T *));
+        }
     }
 };
 
 template <typename T> struct Hash<vec2<T>> {
-    uint32_t operator()(const vec2<T> &key) const noexcept {
+    u32 operator()(const vec2<T> &key) const noexcept {
 #ifndef __clang__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-        T packed[2];
-        memset(packed, 0, sizeof(packed));
-        packed[0] = key.x;
-        packed[1] = key.y; // Protect against alignment issues
+        T packed[2] = {key.x, key.y};
         const void *p = &packed[0];
         return MurmurHash3_x86_32(p, sizeof(packed));
 #ifndef __clang__
@@ -155,38 +169,96 @@ template <typename T> struct Hash<vec2<T>> {
     }
 };
 
-template <typename T> struct Hash<Ptr<T>> {
-    uint32_t operator()(const T &key) const noexcept {
+template <typename T> struct Hash<fl::shared_ptr<T>> {
+    u32 operator()(const T &key) const noexcept {
         auto hasher = Hash<T *>();
         return hasher(key.get());
     }
 };
 
-#define FASTLED_DEFINE_FAST_HASH(T)                                            \
-    template <> struct Hash<T> {                                               \
-        uint32_t operator()(const int &key) const noexcept {                   \
-            return fast_hash32(key);                                           \
-        }                                                                      \
-    };
+template <typename T> struct Hash<fl::WeakPtr<T>> {
+    u32 operator()(const fl::WeakPtr<T> &key) const noexcept {
+        fl::uptr val = key.ptr_value();
+        return MurmurHash3_x86_32(&val, sizeof(fl::uptr));
+    }
+};
 
-FASTLED_DEFINE_FAST_HASH(uint8_t)
-FASTLED_DEFINE_FAST_HASH(uint16_t)
-FASTLED_DEFINE_FAST_HASH(uint32_t)
-FASTLED_DEFINE_FAST_HASH(int8_t)
-FASTLED_DEFINE_FAST_HASH(int16_t)
-FASTLED_DEFINE_FAST_HASH(int32_t)
-FASTLED_DEFINE_FAST_HASH(float)
-FASTLED_DEFINE_FAST_HASH(double)
-FASTLED_DEFINE_FAST_HASH(bool)
+template<> struct Hash<float> {
+    u32 operator()(const float key) const noexcept {
+        u32 ikey = fl::bit_cast<u32>(key);
+        return fast_hash32(ikey);
+    }
+};
+
+template<> struct Hash<double> {
+    u32 operator()(const double& key) const noexcept {
+        return MurmurHash3_x86_32(&key, sizeof(double));
+    }
+};
+
+template<> struct Hash<i32> {
+    u32 operator()(const i32 key) const noexcept {
+        u32 ukey = static_cast<u32>(key);
+        return fast_hash32(ukey);
+    }
+};
+
+template<> struct Hash<bool> {
+    u32 operator()(const bool key) const noexcept {
+        return fast_hash32(key);
+    }
+};
+
+template<> struct Hash<fl::u8> {
+    u32 operator()(const fl::u8 &key) const noexcept {
+        return fast_hash32(key);
+    }
+};
+
+template<> struct Hash<u16> {
+    u32 operator()(const u16 &key) const noexcept {
+        return fast_hash32(key);
+    }
+};
+
+template<> struct Hash<u32> {
+    u32 operator()(const u32 &key) const noexcept {
+        return fast_hash32(key);
+    }
+};
+
+template<> struct Hash<i8> {
+    u32 operator()(const i8 &key) const noexcept {
+        u8 v = static_cast<u8>(key);
+        return fast_hash32(v);
+    }
+};
+
+template<> struct Hash<i16> {
+    u32 operator()(const i16 &key) const noexcept {
+        u16 ukey = static_cast<u16>(key);
+        return fast_hash32(ukey);
+    }
+};
+
+// FASTLED_DEFINE_FAST_HASH(fl::u8)
+// FASTLED_DEFINE_FAST_HASH(u16)
+// FASTLED_DEFINE_FAST_HASH(u32)
+// FASTLED_DEFINE_FAST_HASH(i8)
+// FASTLED_DEFINE_FAST_HASH(i16)
+// FASTLED_DEFINE_FAST_HASH(bool)
+
 // FASTLED_DEFINE_FAST_HASH(int)
 
 //-----------------------------------------------------------------------------
-// Convenience for std::string → uint32_t
+// Convenience for std::string → u32
 //----------------------------------------------------------------------------
-template <> struct Hash<fl::Str> {
-    uint32_t operator()(const fl::Str &key) const noexcept {
+template <> struct Hash<fl::string> {
+    u32 operator()(const fl::string &key) const noexcept {
         return MurmurHash3_x86_32(key.data(), key.size());
     }
 };
+
+
 
 } // namespace fl

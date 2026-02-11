@@ -6,10 +6,11 @@
 #include "test.h"
 #include "fl/screenmap.h"
 
+
 #include "fl/namespace.h"
 FASTLED_USING_NAMESPACE
 
-using fl::Str;
+using fl::string;
 
 TEST_CASE("ScreenMap basic functionality") {
     // Create a screen map for 3 LEDs
@@ -57,7 +58,7 @@ TEST_CASE("ScreenMap JSON parsing") {
         }
     })";
 
-    fl::FixedMap<Str, ScreenMap, 16> segmentMaps;
+    fl::fl_map<string, ScreenMap> segmentMaps;
     ScreenMap::ParseJson(json, &segmentMaps);
 
     ScreenMap& strip1 = segmentMaps["strip1"];
@@ -83,27 +84,27 @@ TEST_CASE("ScreenMap JSON parsing") {
 
 TEST_CASE("ScreenMap multiple strips JSON serialization") {
     // Create a map with multiple strips
-    fl::FixedMap<Str, ScreenMap, 16> originalMaps;
+    fl::fl_map<fl::string, ScreenMap> originalMaps;
     
     // First strip
     ScreenMap strip1(2, 2.0f);
     strip1.set(0, {1.0f, 2.0f});
     strip1.set(1, {3.0f, 4.0f});
-    originalMaps.insert("strip1", strip1);
+    originalMaps["strip1"] = strip1;
     
     // Second strip
     ScreenMap strip2(3, 1.5f);
     strip2.set(0, {10.0f, 20.0f});
     strip2.set(1, {30.0f, 40.0f});
     strip2.set(2, {50.0f, 60.0f});
-    originalMaps.insert("strip2", strip2);
+    originalMaps["strip2"] = strip2;
 
     // Serialize to JSON string
-    Str jsonStr;
+    fl::string jsonStr;
     ScreenMap::toJsonStr(originalMaps, &jsonStr);
 
     // Deserialize back to a new map
-    fl::FixedMap<Str, ScreenMap, 16> deserializedMaps;
+    fl::fl_map<fl::string, ScreenMap> deserializedMaps;
     ScreenMap::ParseJson(jsonStr.c_str(), &deserializedMaps);
 
     // Verify first strip

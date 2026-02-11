@@ -14,7 +14,7 @@ int FxEngine::addFx(FxPtr effect) {
     if (mInterpolate && effect->hasFixedFrameRate(&fps)) {
         // Wrap the effect in a VideoFxWrapper so that we can get
         // interpolation.
-        VideoFxWrapperPtr vid_fx = VideoFxWrapperPtr::New(effect);
+        VideoFxWrapperPtr vid_fx = fl::make_shared<VideoFxWrapper>(effect);
         vid_fx->setFade(0, 0); // No fade for interpolated effects
         effect = vid_fx;
     }
@@ -79,9 +79,9 @@ FxPtr FxEngine::getFx(int id) {
     return FxPtr();
 }
 
-bool FxEngine::draw(uint32_t now, CRGB *finalBuffer) {
+bool FxEngine::draw(fl::u32 now, CRGB *finalBuffer) {
     mTimeFunction.update(now);
-    uint32_t warpedTime = mTimeFunction.time();
+    fl::u32 warpedTime = mTimeFunction.time();
 
     if (mEffects.empty()) {
         return false;

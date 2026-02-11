@@ -1,10 +1,15 @@
 #pragma once
 
+#include "fl/has_include.h"
+
 #ifndef FASTLED_MULTITHREADED
+#if defined(FASTLED_TESTING) && FL_HAS_INCLUDE(<pthread.h>)
+#define FASTLED_MULTITHREADED 1
+#else
 #define FASTLED_MULTITHREADED 0
 #endif
+#endif  // FASTLED_MULTITHREADED
 
-#if FASTLED_MULTITHREADED and !defined(FASTLED_MULTITHREAD_SUPPRESS_WARNING)
-#warning                                                                       \
-    "Warning: FastLED has never been used in a multi threading environment and may not work."
-#endif
+#ifndef FASTLED_USE_THREAD_LOCAL
+#define FASTLED_USE_THREAD_LOCAL FASTLED_MULTITHREADED
+#endif  // FASTLED_USE_THREAD_LOCAL

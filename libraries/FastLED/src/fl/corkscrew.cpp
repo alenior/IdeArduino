@@ -3,140 +3,500 @@
 #include "fl/assert.h"
 #include "fl/math.h"
 #include "fl/splat.h"
-
+#include "fl/warn.h"
+#include "fl/tile2x2.h"
 #include "fl/math_macros.h"
+#include "fl/unused.h"
+#include "fl/map_range.h"
+#include "fl/leds.h"
+#include "fl/grid.h"
+#include "fl/screenmap.h"
+#include "fl/memory.h"
+#include "fl/int.h"
 
-#define TWO_PI (PI * 2.0)
+
+
 
 namespace fl {
 
-void generateState(const Corkscrew::Input &input, CorkscrewState *output);
+namespace {
 
-void generateState(const Corkscrew::Input &input, CorkscrewState *output) {
+// New helper function to calculate individual LED position
+vec2f calculateLedPositionExtended(fl::u16 ledIndex, fl::u16 numLeds, float totalTurns, const Gap& gapParams, fl::u16 width, fl::u16 height) {
+    FL_UNUSED(height);
+    FL_UNUSED(totalTurns);
 
-    // Calculate vertical segments based on number of turns
-    // For a single turn (2π), we want exactly 1 vertical segment
-    // For two turns (4π), we want exactly 2 vertical segments
-    // uint16_t verticalSegments = ceil(input.totalTurns);
-
-    // Calculate width based on LED density per turn
-    // float ledsPerTurn = static_cast<float>(input.numLeds) / verticalSegments;
-
-    output->mapping.clear();
-    output->width = 0; // we will change this below.
-    output->height = 0;
-
-    // If numLeds is specified, use that for mapping size instead of grid
-    output->mapping.reserve(input.numLeds);
-    // Generate LED mapping based on numLeds
-    // Note that width_step should be 1.0f/float(input.numLeds) so last led in a
-    // turn does not wrap around.
-    const float width_step =
-        1.0f / float(input.numLeds); // Corkscrew reaches max width on last led.
-    const float height_step =
-        1.0f /
-        float(input.numLeds - 1); // Corkscrew reaches max height on last led.
-    // const float led_width_factor = circumferencePerTurn / TWO_PI;
-    const float length_per_turn = input.numLeds / input.totalTurns;
-
-    for (uint16_t i = 0; i < input.numLeds; ++i) {
-        // Calculate position along the corkscrew (0.0 to 1.0)
-        const float i_f = static_cast<float>(i);
-        const float alpha_width = i_f * width_step;
-        const float alpha_height = i_f * height_step;
-        const float width_before_mod = alpha_width * input.totalLength;
-        const float height = alpha_height * input.totalHeight;
-        const float width = fmodf(width_before_mod, length_per_turn);
-        output->mapping.push_back({width, height});
+    // Check if gap feature is active AND will actually be triggered
+    bool gapActive = (gapParams.num_leds > 0 && gapParams.gap > 0.0f && numLeds > static_cast<fl::u16>(gapParams.num_leds));
+    
+    if (!gapActive) {
+        // Original behavior when no gap or gap never triggers
+        const float ledProgress = static_cast<float>(ledIndex) / static_cast<float>(numLeds - 1);
+        const fl::u16 row = ledIndex / width;
+        const fl::u16 remainder = ledIndex % width;
+        const float alpha = static_cast<float>(remainder) / static_cast<float>(width);
+        const float width_pos = ledProgress * numLeds;
+        const float height_pos = static_cast<float>(row) + alpha;
+        return vec2f(width_pos, height_pos);
     }
-
-    if (!output->mapping.empty()) {
-        float max_width = 0.0f;
-        float max_height = 0.0f;
-        for (const auto &point : output->mapping) {
-            max_width = MAX(max_width, point.x);
-            max_height = MAX(max_height, point.y);
-        }
-        output->width = static_cast<uint16_t>(ceilf(max_width)) + 1;
-        output->height = static_cast<uint16_t>(ceilf(max_height)) + 1;
-    }
-
-    // Apply inversion if requested
-    if (input.invert) {
-        fl::reverse(output->mapping.begin(), output->mapping.end());
-    }
+    
+    // Simplified gap calculation based on user expectation
+    // User wants: LED0=0, LED1=3, LED2=6(wraps to 0) with width=3
+    // This suggests they want regular spacing of width units per LED
+    
+    // Simple spacing: each LED is separated by exactly width units  
+    float width_pos = static_cast<float>(ledIndex) * static_cast<float>(width);
+    
+    // For height, divide by width to get turn progress
+    float height_pos = width_pos / static_cast<float>(width);
+    
+    return vec2f(width_pos, height_pos);
 }
 
-Corkscrew::Corkscrew(const Corkscrew::Input &input) : mInput(input) {
-    fl::generateState(mInput, &mState);
+void calculateDimensions(float totalTurns, fl::u16 numLeds, const Gap& gapParams, fl::u16 *width, fl::u16 *height) {
+    FL_UNUSED(gapParams);
+    
+    // Calculate optimal width and height
+    float ledsPerTurn = static_cast<float>(numLeds) / totalTurns;
+    fl::u16 calc_width = static_cast<fl::u16>(fl::ceil(ledsPerTurn));
+    
+    fl::u16 height_from_turns = static_cast<fl::u16>(fl::ceil(totalTurns));
+    fl::u16 calc_height;
+    
+    // If the grid would have more pixels than LEDs, adjust height to better match
+    if (calc_width * height_from_turns > numLeds) {
+        // Calculate height that better matches LED count
+        calc_height = static_cast<fl::u16>(fl::ceil(static_cast<float>(numLeds) / static_cast<float>(calc_width)));
+    } else {
+        calc_height = height_from_turns;
+    }
+    
+    *width = calc_width;
+    *height = calc_height;
 }
 
-vec2f Corkscrew::at_exact(uint16_t i) const {
-    if (i >= mState.mapping.size()) {
+}  // namespace
+
+// New primary constructor
+Corkscrew::Corkscrew(float totalTurns, fl::u16 numLeds, bool invert, const Gap& gapParams)
+    : mTotalTurns(totalTurns), mNumLeds(numLeds), mGapParams(gapParams), mInvert(invert) {
+    fl::calculateDimensions(mTotalTurns, mNumLeds, mGapParams, &mWidth, &mHeight);
+    mOwnsPixels = false;
+}
+
+// Constructor with external pixel buffer
+Corkscrew::Corkscrew(float totalTurns, fl::span<CRGB> dstPixels, bool invert, const Gap& gapParams)
+    : mTotalTurns(totalTurns), mNumLeds(static_cast<fl::u16>(dstPixels.size())), 
+      mGapParams(gapParams), mInvert(invert) {
+    fl::calculateDimensions(mTotalTurns, mNumLeds, mGapParams, &mWidth, &mHeight);
+    mPixelStorage = dstPixels;
+    mOwnsPixels = false; // External span
+}
+
+
+
+vec2f Corkscrew::at_no_wrap(fl::u16 i) const {
+    if (i >= mNumLeds) {
         // Handle out-of-bounds access, possibly by returning a default value
         return vec2f(0, 0);
     }
-    // Convert the float position to integer
-    const vec2f &position = mState.mapping[i];
+    
+    // Compute position on-the-fly
+    vec2f position = calculateLedPositionExtended(i, mNumLeds, mTotalTurns, 
+                                         mGapParams, mWidth, mHeight);
+    
+    // // Apply inversion if requested
+    // if (mInvert) {
+    //     fl::u16 invertedIndex = mNumLeds - 1 - i;
+    //     position = calculateLedPositionExtended(invertedIndex, mNumLeds, mTotalTurns, 
+    //                                    mGapParams, mState.width, mState.height);
+    // }
+
+    // now wrap the x-position
+    //position.x = fmodf(position.x, static_cast<float>(mState.width));
+    
+    return position;
+}
+
+vec2f Corkscrew::at_exact(fl::u16 i) const {
+    // Get the unwrapped position
+    vec2f position = at_no_wrap(i);
+    
+    // Apply cylindrical wrapping to the x-position (like at_wrap does)
+    position.x = fmodf(position.x, static_cast<float>(mWidth));
+    
     return position;
 }
 
 
 Tile2x2_u8 Corkscrew::at_splat_extrapolate(float i) const {
-    // To finish this, we need to handle wrap around.
-    // To accomplish this we need a different data structure than the the
-    // Tile2x2_u8.
-    // 1. It will be called CorkscrewTile2x2_u8.
-    // 2. The four alpha values will each contain the index the LED is at,
-    // uint16_t.
-    // 3. There will be no origin, each pixel in the tile will contain a
-    // uint16_t origin. This is not supposed to be a storage format, but a
-    // convenient pre-computed value for rendering.
-    if (i >= mState.mapping.size()) {
+    if (i >= mNumLeds) {
         // Handle out-of-bounds access, possibly by returning a default
         // Tile2x2_u8
         FASTLED_ASSERT(false, "Out of bounds access in Corkscrew at_splat: "
-                                  << i << " size: " << mState.mapping.size());
+                                  << i << " size: " << mNumLeds);
         return Tile2x2_u8();
     }
+    
     // Use the splat function to convert the vec2f to a Tile2x2_u8
     float i_floor = floorf(i);
     float i_ceil = ceilf(i);
     if (ALMOST_EQUAL_FLOAT(i_floor, i_ceil)) {
         // If the index is the same, just return the splat of that index
-        return splat(mState.mapping[static_cast<uint16_t>(i_floor)]);
+        vec2f position = at_no_wrap(static_cast<fl::u16>(i_floor));
+        return splat(position);
     } else {
         // Interpolate between the two points and return the splat of the result
-        vec2f pos1 = mState.mapping[static_cast<uint16_t>(i_floor)];
-        vec2f pos2 = mState.mapping[static_cast<uint16_t>(i_ceil)];
-
-        if (pos2.x < pos1.x) {
-            // If the next point is on the other side of the cylinder, we need
-            // to wrap it around and bring it back into the positive direction so we can construct a Tile2x2_u8 wrap with it.
-            pos2.x += mState.width;
-        }
-
-        vec2f interpolated_pos =
-            pos1 * (1.0f - (i - i_floor)) + pos2 * (i - i_floor);
+        vec2f pos1 = at_no_wrap(static_cast<fl::u16>(i_floor));
+        vec2f pos2 = at_no_wrap(static_cast<fl::u16>(i_ceil));
+        float t = i - i_floor;
+        vec2f interpolated_pos = map_range(t, 0.0f, 1.0f, pos1, pos2);
         return splat(interpolated_pos);
     }
 }
 
-size_t Corkscrew::size() const { return mState.mapping.size(); }
-
-Corkscrew::State Corkscrew::generateState(const Corkscrew::Input &input) {
-    CorkscrewState output;
-    fl::generateState(input, &output);
-    return output;
-}
-
+fl::size Corkscrew::size() const { return mNumLeds; }
 
 
 Tile2x2_u8_wrap Corkscrew::at_wrap(float i) const {
+    if (mCachingEnabled) {
+        // Use cache if enabled
+        initializeCache();
+        
+        // Convert float index to integer for cache lookup
+        fl::size cache_index = static_cast<fl::size>(i);
+        if (cache_index < mTileCache.size()) {
+            return mTileCache[cache_index];
+        }
+    }
+    
+    // Fall back to dynamic calculation if cache disabled or index out of bounds
+    return calculateTileAtWrap(i);
+}
+
+Tile2x2_u8_wrap Corkscrew::calculateTileAtWrap(float i) const {
     // This is a splatted pixel, but wrapped around the cylinder.
     // This is useful for rendering the corkscrew in a cylindrical way.
     Tile2x2_u8 tile = at_splat_extrapolate(i);
-    return Tile2x2_u8_wrap(tile, mState.width, mState.height);
+    Tile2x2_u8_wrap::Entry data[2][2];
+    vec2<u16> origin = tile.origin();
+    for (fl::u8 x = 0; x < 2; x++) {
+        for (fl::u8 y = 0; y < 2; y++) {
+            // For each pixel in the tile, map it to the cylinder so that each subcomponent
+            // is mapped to the correct position on the cylinder.
+            vec2<u16> pos = origin + vec2<u16>(x, y);
+            // now wrap the x-position
+            pos.x = fmodf(pos.x, static_cast<float>(mWidth));
+            data[x][y] = {pos, tile.at(x, y)};
+        }
+    }
+    return Tile2x2_u8_wrap(data);
 }
+
+void Corkscrew::setCachingEnabled(bool enabled) {
+    if (!enabled && mCachingEnabled) {
+        // Caching was enabled, now disabling - clear the cache
+        mTileCache.clear();
+        mCacheInitialized = false;
+    }
+    mCachingEnabled = enabled;
+}
+
+void Corkscrew::initializeCache() const {
+    if (!mCacheInitialized && mCachingEnabled) {
+        // Initialize cache with tiles for each LED position
+        mTileCache.resize(mNumLeds);
+        
+        // Populate cache lazily
+        for (fl::size i = 0; i < mNumLeds; ++i) {
+            mTileCache[i] = calculateTileAtWrap(static_cast<float>(i));
+        }
+        
+        mCacheInitialized = true;
+    }
+}
+
+CRGB* Corkscrew::rawData() {
+    // Use variant storage if available, otherwise fall back to input surface
+    if (!mPixelStorage.empty()) {
+        if (mPixelStorage.template is<fl::span<CRGB>>()) {
+            return mPixelStorage.template get<fl::span<CRGB>>().data();
+        } else if (mPixelStorage.template is<fl::vector<CRGB, fl::allocator_psram<CRGB>>>()) {
+            return mPixelStorage.template get<fl::vector<CRGB, fl::allocator_psram<CRGB>>>().data();
+        }
+    }
+    
+    // Fall back to input surface data
+    auto surface = getOrCreateInputSurface();
+    return surface->data();
+}
+
+fl::span<CRGB> Corkscrew::data() {
+    // Use variant storage if available, otherwise fall back to input surface
+    if (!mPixelStorage.empty()) {
+        if (mPixelStorage.template is<fl::span<CRGB>>()) {
+            return mPixelStorage.template get<fl::span<CRGB>>();
+        } else if (mPixelStorage.template is<fl::vector<CRGB, fl::allocator_psram<CRGB>>>()) {
+            auto& vec = mPixelStorage.template get<fl::vector<CRGB, fl::allocator_psram<CRGB>>>();
+            return fl::span<CRGB>(vec.data(), vec.size());
+        }
+    }
+    
+    // Fall back to input surface data as span
+    auto surface = getOrCreateInputSurface();
+    return fl::span<CRGB>(surface->data(), surface->size());
+}
+
+
+void Corkscrew::readFrom(const fl::Grid<CRGB>& source_grid, bool use_multi_sampling) {
+
+    if (use_multi_sampling) {
+        readFromMulti(source_grid);
+        return;
+    }
+
+    // Get or create the input surface
+    auto target_surface = getOrCreateInputSurface();
+    
+    // Clear surface first
+    target_surface->clear();
+    
+    // Iterate through each LED in the corkscrew
+    for (fl::size led_idx = 0; led_idx < mNumLeds; ++led_idx) {
+        // Get the rectangular coordinates for this corkscrew LED
+        vec2f rect_pos = at_no_wrap(static_cast<fl::u16>(led_idx));
+        
+        // Convert to integer coordinates for indexing
+        vec2i16 coord(static_cast<fl::i16>(rect_pos.x + 0.5f), 
+                      static_cast<fl::i16>(rect_pos.y + 0.5f));
+        
+        // Clamp coordinates to grid bounds
+        coord.x = MAX(0, MIN(coord.x, static_cast<fl::i16>(source_grid.width()) - 1));
+        coord.y = MAX(0, MIN(coord.y, static_cast<fl::i16>(source_grid.height()) - 1));
+        
+        // Sample from the source fl::Grid using its at() method
+        CRGB sampled_color = source_grid.at(coord.x, coord.y);
+        
+        // Store the sampled color directly in the target surface
+        if (led_idx < target_surface->size()) {
+            target_surface->data()[led_idx] = sampled_color;
+        }
+    }
+}
+
+void Corkscrew::clear() {
+    // Clear input surface if it exists
+    if (mInputSurface) {
+        mInputSurface->clear();
+        mInputSurface.reset(); // Free the shared_ptr memory
+    }
+    
+    // Clear pixel storage if we own it (vector variant)
+    if (!mPixelStorage.empty()) {
+        if (mPixelStorage.template is<fl::vector<CRGB, fl::allocator_psram<CRGB>>>()) {
+            auto& vec = mPixelStorage.template get<fl::vector<CRGB, fl::allocator_psram<CRGB>>>();
+            vec.clear();
+            // Note: fl::vector doesn't have shrink_to_fit(), but clear() frees the memory
+        }
+        // Note: Don't clear external spans as we don't own that memory
+    }
+    
+    // Clear tile cache
+    mTileCache.clear();
+    // Note: fl::vector doesn't have shrink_to_fit(), but clear() frees the memory
+    mCacheInitialized = false;
+}
+
+void Corkscrew::fillInputSurface(const CRGB& color) {
+    auto target_surface = getOrCreateInputSurface();
+    for (fl::size i = 0; i < target_surface->size(); ++i) {
+        target_surface->data()[i] = color;
+    }
+}
+
+void Corkscrew::draw(bool use_multi_sampling) {
+    // The draw method should map from the rectangular surface to the LED pixel data
+    // This is the reverse of readFrom - we read from our surface and populate LED data
+    auto source_surface = getOrCreateInputSurface();
+    
+    // Make sure we have pixel storage
+    if (mPixelStorage.empty()) {
+        // If no pixel storage is configured, there's nothing to draw to
+        return;
+    }
+    
+    CRGB* led_data = rawData();
+    if (!led_data) return;
+    
+    if (use_multi_sampling) {
+        // Use multi-sampling to get better accuracy
+        for (fl::size led_idx = 0; led_idx < mNumLeds; ++led_idx) {
+            // Get the wrapped tile for this LED position
+            Tile2x2_u8_wrap tile = at_wrap(static_cast<float>(led_idx));
+            
+            // Accumulate color from the 4 sample points with their weights
+            fl::u32 r_accum = 0, g_accum = 0, b_accum = 0;
+            fl::u32 total_weight = 0;
+
+            // Sample from each of the 4 corners of the tile
+            for (fl::u8 x = 0; x < 2; x++) {
+                for (fl::u8 y = 0; y < 2; y++) {
+                    const auto& entry = tile.at(x, y);
+                    vec2<u16> pos = entry.first;   
+                    fl::u8 weight = entry.second; 
+                    
+                    // Bounds check for the source surface
+                    if (pos.x < source_surface->width() && pos.y < source_surface->height()) {
+                        // Sample from the source surface
+                        CRGB sample_color = source_surface->at(pos.x, pos.y);
+                        
+                        // Accumulate weighted color components
+                        r_accum += static_cast<fl::u32>(sample_color.r) * weight;
+                        g_accum += static_cast<fl::u32>(sample_color.g) * weight;
+                        b_accum += static_cast<fl::u32>(sample_color.b) * weight;
+                        total_weight += weight;
+                    }
+                }
+            }
+            
+            // Calculate final color by dividing by total weight
+            CRGB final_color = CRGB::Black;
+            if (total_weight > 0) {
+                final_color.r = static_cast<fl::u8>(r_accum / total_weight);
+                final_color.g = static_cast<fl::u8>(g_accum / total_weight);
+                final_color.b = static_cast<fl::u8>(b_accum / total_weight);
+            }
+            
+            // Store the result in the LED data
+            led_data[led_idx] = final_color;
+        }
+    } else {
+        // Simple non-multi-sampling version
+        for (fl::size led_idx = 0; led_idx < mNumLeds; ++led_idx) {
+            // Get the rectangular coordinates for this corkscrew LED
+            vec2f rect_pos = at_no_wrap(static_cast<fl::u16>(led_idx));
+            
+            // Convert to integer coordinates for indexing
+            vec2i16 coord(static_cast<fl::i16>(rect_pos.x + 0.5f), 
+                          static_cast<fl::i16>(rect_pos.y + 0.5f));
+            
+            // Clamp coordinates to surface bounds
+            coord.x = MAX(0, MIN(coord.x, static_cast<fl::i16>(source_surface->width()) - 1));
+            coord.y = MAX(0, MIN(coord.y, static_cast<fl::i16>(source_surface->height()) - 1));
+            
+            // Sample from the source surface
+            CRGB sampled_color = source_surface->at(coord.x, coord.y);
+            
+            // Store the sampled color in the LED data
+            led_data[led_idx] = sampled_color;
+        }
+    }
+}
+
+void Corkscrew::readFromMulti(const fl::Grid<CRGB>& source_grid) const {
+    // Get the target surface and clear it
+    auto target_surface = const_cast<Corkscrew*>(this)->getOrCreateInputSurface();
+    target_surface->clear();
+    const u16 width = static_cast<u16>(source_grid.width());
+    const u16 height = static_cast<u16>(source_grid.height());
+    
+    // Iterate through each LED in the corkscrew
+    for (fl::size led_idx = 0; led_idx < mNumLeds; ++led_idx) {
+        // Get the wrapped tile for this LED position
+        Tile2x2_u8_wrap tile = at_wrap(static_cast<float>(led_idx));
+        
+        // Accumulate color from the 4 sample points with their weights
+        fl::u32 r_accum = 0, g_accum = 0, b_accum = 0;
+        fl::u32 total_weight = 0;
+
+        // Sample from each of the 4 corners of the tile
+        for (fl::u8 x = 0; x < 2; x++) {
+            for (fl::u8 y = 0; y < 2; y++) {
+                const auto& entry = tile.at(x, y);
+                vec2<u16> pos = entry.first;   // position is the first element of the pair
+                fl::u8 weight = entry.second; // weight is the second element of the pair
+                
+                // Bounds check for the source grid
+                if (pos.x >= 0 && pos.x < width && 
+                    pos.y >= 0 && pos.y < height) {
+                    
+                    // Sample from the source grid
+                    CRGB sample_color = source_grid.at(pos.x, pos.y);
+                    
+                    // Accumulate weighted color components
+                    r_accum += static_cast<fl::u32>(sample_color.r) * weight;
+                    g_accum += static_cast<fl::u32>(sample_color.g) * weight;
+                    b_accum += static_cast<fl::u32>(sample_color.b) * weight;
+                    total_weight += weight;
+                }
+            }
+        }
+        
+        // Calculate final color by dividing by total weight
+        CRGB final_color = CRGB::Black;
+        if (total_weight > 0) {
+            final_color.r = static_cast<fl::u8>(r_accum / total_weight);
+            final_color.g = static_cast<fl::u8>(g_accum / total_weight);
+            final_color.b = static_cast<fl::u8>(b_accum / total_weight);
+        }
+        
+        // Store the result in the target surface at the LED index position
+        auto target_surface = const_cast<Corkscrew*>(this)->getOrCreateInputSurface();
+        if (led_idx < target_surface->size()) {
+            target_surface->data()[led_idx] = final_color;
+        }
+    }
+}
+
+// Iterator implementation
+vec2f Corkscrew::iterator::operator*() const {
+    return corkscrew_->at_no_wrap(static_cast<fl::u16>(position_));
+}
+
+fl::ScreenMap Corkscrew::toScreenMap(float diameter) const {
+    // Create a ScreenMap with the correct number of LEDs
+    fl::ScreenMap screenMap(mNumLeds, diameter);
+    
+    // For each LED index, calculate its position and set it in the ScreenMap
+    for (fl::u16 i = 0; i < mNumLeds; ++i) {
+        // Get the wrapped 2D position for this LED index in the cylindrical mapping
+        vec2f position = at_exact(i);
+        
+        // Set the wrapped position in the ScreenMap
+        screenMap.set(i, position);
+    }
+    
+    return screenMap;
+}
+
+// Enhanced surface handling methods  
+fl::shared_ptr<fl::Grid<CRGB>>& Corkscrew::getOrCreateInputSurface() {
+    if (!mInputSurface) {
+        // Create a new Grid with cylinder dimensions using PSRAM allocation
+        mInputSurface = fl::make_shared<fl::Grid<CRGB>>(mWidth, mHeight);
+    }
+    return mInputSurface;
+}
+
+fl::Grid<CRGB>& Corkscrew::surface() {
+    return *getOrCreateInputSurface();
+}
+
+
+fl::size Corkscrew::pixelCount() const {
+    // Use variant storage if available, otherwise fall back to legacy buffer size
+    if (!mPixelStorage.empty()) {
+        if (mPixelStorage.template is<fl::span<CRGB>>()) {
+            return mPixelStorage.template get<fl::span<CRGB>>().size();
+        } else if (mPixelStorage.template is<fl::vector<CRGB, fl::allocator_psram<CRGB>>>()) {
+            return mPixelStorage.template get<fl::vector<CRGB, fl::allocator_psram<CRGB>>>().size();
+        }
+    }
+    
+    // Fall back to input size
+    return mNumLeds;
+}
+
+
 
 } // namespace fl
