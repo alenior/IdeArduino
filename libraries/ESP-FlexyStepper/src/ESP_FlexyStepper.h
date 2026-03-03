@@ -109,6 +109,14 @@ public:
   float getCurrentVelocityInRevolutionsPerSecond();
   float getCurrentVelocityInMillimetersPerSecond(void);
 
+  float getConfiguredAccelerationInStepsPerSecondPerSecond();
+  float getConfiguredAccelerationInRevolutionsPerSecondPerSecond();
+  float getConfiguredAccelerationInMillimetersPerSecondPerSecond();
+
+  float getConfiguredDecelerationInStepsPerSecondPerSecond();
+  float getConfiguredDecelerationInRevolutionsPerSecondPerSecond();
+  float getConfiguredDecelerationInMillimetersPerSecondPerSecond();
+
   // positioning functions
   void setCurrentPositionInSteps(long currentPositionInSteps);
   void setCurrentPositionInMillimeters(float currentPositionInMillimeters);
@@ -209,7 +217,7 @@ private:
   bool isCurrentlyHomed;
   bool isOnWayToHome = false;
   bool isOnWayToLimit = false;
-  bool firstProcessingAfterTargetReached = true;
+  bool firstProcessingAfterTargetReached = false;
   // The type ID of the limit switch type that is active. possible values are LIMIT_SWITCH_BEGIN (-1) or LIMIT_SWITCH_END (1) or LIMIT_SWITCH_COMBINED_BEGIN_AND_END (2) or 0 if no limit switch is active
   signed char activeLimitSwitch;
   bool limitSwitchCheckPeformed;
