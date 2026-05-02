@@ -103,7 +103,7 @@ AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified() {
 }
 
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  return request->isHTTP() && request->method() == HTTP_GET && request->url().startsWith(_uri) && _getFile(request);
+  return request->isHTTP() && request->method() == AsyncWebRequestMethod::HTTP_GET && request->url().startsWith(_uri) && _getFile(request);
 }
 
 bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request) const {
@@ -218,7 +218,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     //File is a gz, get etag from CRC in trailer
     if (!AsyncWebServerRequest::_getEtag(request->_tempFile, etag)) {
       // File is corrupted or invalid
-      async_ws_log_e("File is corrupted or invalid: %s", tempFileName);
+      async_ws_log_w("File is corrupted or invalid: %s", tempFileName);
       request->send(404);
       return;
     }
@@ -260,7 +260,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     request->_tempFile.close();
     response = new AsyncBasicResponse(304);  // Not modified
   } else {
-    response = new AsyncFileResponse(request->_tempFile, filename, emptyString, false, _callback);
+    response = new AsyncFileResponse(request->_tempFile, filename, asyncsrv::emptyString, false, _callback);
   }
 
   if (!response) {
@@ -300,7 +300,7 @@ void AsyncCallbackWebHandler::setUri(AsyncURIMatcher uri) {
 }
 
 bool AsyncCallbackWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !(_method & request->method())) {
+  if (!_onRequest || !request->isHTTP() || !_method.matches(request->method())) {
     return false;
   }
   return _uri.matches(request);

@@ -10,7 +10,7 @@ extern "C" {
 /** Major version number (X.x.x) */
 #define ASYNCWEBSERVER_VERSION_MAJOR 3
 /** Minor version number (x.X.x) */
-#define ASYNCWEBSERVER_VERSION_MINOR 10
+#define ASYNCWEBSERVER_VERSION_MINOR 11
 /** Patch version number (x.x.X) */
 #define ASYNCWEBSERVER_VERSION_PATCH 0
 
