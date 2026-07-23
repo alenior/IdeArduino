@@ -47,15 +47,15 @@ constexpr uint32_t SERIAL_BAUD_RATE = 115200;
 // Começaremos com clock conservador.
 // O padrão frequente é 20 MHz, mas 16 MHz reduz a exigência
 // durante o primeiro diagnóstico.
-constexpr uint32_t XCLK_FREQUENCY_HZ = 16000000;
+constexpr uint32_t XCLK_FREQUENCY_HZ = 20000000;
 
 // VGA oferece um teste mais representativo que QVGA,
 // sem exigir imediatamente resolução elevada.
-constexpr framesize_t INITIAL_FRAME_SIZE = FRAMESIZE_VGA;
+constexpr framesize_t INITIAL_FRAME_SIZE = FRAMESIZE_XGA;
 
 // No driver da câmera, número menor representa JPEG de melhor qualidade.
 // 12 é um ponto inicial equilibrado.
-constexpr int JPEG_QUALITY = 12;
+constexpr int JPEG_QUALITY = 10;
 
 // Um único buffer simplifica o diagnóstico inicial.
 constexpr size_t FRAME_BUFFER_COUNT = 1;

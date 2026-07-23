@@ -89,6 +89,11 @@ namespace WebServerService
             background: #1d4ed8;
         }
 
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
         #status {
             margin-top: 16px;
             white-space: pre-wrap;
@@ -112,7 +117,11 @@ namespace WebServerService
         >
 
         <div>
-            <button type="button" onclick="captureImage()">
+            <button
+                id="captureButton"
+                type="button"
+                onclick="captureImage()"
+            >
                 Capturar imagem
             </button>
 
@@ -134,52 +143,113 @@ namespace WebServerService
     </section>
 
     <script>
-        const image = document.getElementById("cameraImage");
-        const statusElement = document.getElementById("status");
+    const image = document.getElementById("cameraImage");
+    const statusElement = document.getElementById("status");
+    const captureButton =
+        document.getElementById("captureButton");
 
-        function captureImage() {
-            statusElement.textContent = "Capturando...";
+    let captureInProgress = false;
+    let currentImageUrl = null;
+
+    async function captureImage() {
+        if (captureInProgress) {
+            return;
+        }
+
+        captureInProgress = true;
+        captureButton.disabled = true;
+        captureButton.textContent = "Capturando...";
+        statusElement.textContent =
+            "Solicitando uma nova imagem...";
+
+        const startTime = performance.now();
+
+        try {
+            const response = await fetch(
+                "/capture?t=" + Date.now(),
+                {
+                    method: "GET",
+                    cache: "no-store"
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    "HTTP " + response.status
+                );
+            }
+
+            const imageBlob = await response.blob();
+
+            if (!imageBlob.type.startsWith("image/jpeg")) {
+                throw new Error(
+                    "Resposta recebida não é JPEG."
+                );
+            }
+
+            const newImageUrl =
+                URL.createObjectURL(imageBlob);
 
             image.onload = () => {
-                statusElement.textContent =
-                    "Captura recebida com sucesso.";
-            };
-
-            image.onerror = () => {
-                statusElement.textContent =
-                    "Falha ao receber a captura.";
-            };
-
-            image.src = "/capture?t=" + Date.now();
-        }
-
-        async function loadStatus() {
-            statusElement.textContent = "Consultando status...";
-
-            try {
-                const response = await fetch(
-                    "/status?t=" + Date.now(),
-                    { cache: "no-store" }
-                );
-
-                if (!response.ok) {
-                    throw new Error(
-                        "HTTP " + response.status
-                    );
+                if (currentImageUrl !== null) {
+                    URL.revokeObjectURL(currentImageUrl);
                 }
 
-                const data = await response.json();
+                currentImageUrl = newImageUrl;
+            };
 
-                statusElement.textContent =
-                    JSON.stringify(data, null, 2);
-            } catch (error) {
-                statusElement.textContent =
-                    "Falha: " + error.message;
-            }
+            image.src = newImageUrl;
+
+            const elapsedTime =
+                Math.round(performance.now() - startTime);
+
+            statusElement.textContent =
+                "Captura recebida: " +
+                imageBlob.size +
+                " bytes em " +
+                elapsedTime +
+                " ms.";
+        } catch (error) {
+            statusElement.textContent =
+                "Falha na captura: " + error.message;
+        } finally {
+            captureInProgress = false;
+            captureButton.disabled = false;
+            captureButton.textContent =
+                "Capturar imagem";
         }
+    }
 
-        loadStatus();
-    </script>
+    async function loadStatus() {
+        statusElement.textContent =
+            "Consultando status...";
+
+        try {
+            const response = await fetch(
+                "/status?t=" + Date.now(),
+                {
+                    cache: "no-store"
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    "HTTP " + response.status
+                );
+            }
+
+            const data = await response.json();
+
+            statusElement.textContent =
+                JSON.stringify(data, null, 2);
+        } catch (error) {
+            statusElement.textContent =
+                "Falha: " + error.message;
+        }
+    }
+
+    loadStatus();
+</script>
 </body>
 </html>
 )HTML";
@@ -314,13 +384,22 @@ namespace WebServerService
 
         esp_err_t captureHandler(httpd_req_t *request)
         {
-            const int64_t requestStartUs = esp_timer_get_time();
+            const int64_t requestStartUs =
+                esp_timer_get_time();
 
-            camera_fb_t *frame = CameraService::acquireFrame();
+            const int64_t captureStartUs =
+                esp_timer_get_time();
+
+            camera_fb_t *frame =
+                CameraService::acquireFrame();
+
+            const int64_t captureElapsedUs =
+                esp_timer_get_time() - captureStartUs;
 
             if (frame == nullptr)
             {
-                Serial.println("[HTTP] Falha ao capturar frame.");
+                Serial.println(
+                    "[HTTP] Falha ao adquirir frame.");
 
                 httpd_resp_set_status(
                     request,
@@ -335,10 +414,13 @@ namespace WebServerService
                     "Falha ao capturar imagem.");
             }
 
-            if (frame->format != PIXFORMAT_JPEG)
+            if (frame->format != PIXFORMAT_JPEG ||
+                frame->buf == nullptr ||
+                frame->len < 4)
             {
+
                 Serial.println(
-                    "[HTTP] Frame recebido em formato diferente de JPEG.");
+                    "[HTTP] Frame JPEG invalido.");
 
                 CameraService::releaseFrame(frame);
 
@@ -346,53 +428,140 @@ namespace WebServerService
                     request,
                     "500 Internal Server Error");
 
+                httpd_resp_set_type(
+                    request,
+                    "text/plain; charset=utf-8");
+
                 return httpd_resp_sendstr(
                     request,
-                    "Formato de imagem inesperado.");
+                    "Frame JPEG invalido.");
+            }
+
+            const bool validStartMarker =
+                frame->buf[0] == 0xFF &&
+                frame->buf[1] == 0xD8;
+
+            const bool validEndMarker =
+                frame->buf[frame->len - 2] == 0xFF &&
+                frame->buf[frame->len - 1] == 0xD9;
+
+            if (!validStartMarker || !validEndMarker)
+            {
+                Serial.println(
+                    "[HTTP] Marcadores JPEG invalidos.");
+
+                CameraService::releaseFrame(frame);
+
+                httpd_resp_set_status(
+                    request,
+                    "500 Internal Server Error");
+
+                httpd_resp_set_type(
+                    request,
+                    "text/plain; charset=utf-8");
+
+                return httpd_resp_sendstr(
+                    request,
+                    "JPEG incompleto.");
             }
 
             const size_t frameLength = frame->len;
+            const size_t frameWidth = frame->width;
+            const size_t frameHeight = frame->height;
 
-            httpd_resp_set_type(request, "image/jpeg");
+            esp_err_t responseResult =
+                httpd_resp_set_type(
+                    request,
+                    "image/jpeg");
 
-            httpd_resp_set_hdr(
-                request,
-                "Content-Disposition",
-                "inline; filename=\"capture.jpg\"");
+            if (responseResult == ESP_OK)
+            {
+                responseResult = httpd_resp_set_hdr(
+                    request,
+                    "Content-Disposition",
+                    "inline; filename=\"capture.jpg\"");
+            }
 
-            setNoCacheHeaders(request);
+            if (responseResult == ESP_OK)
+            {
+                responseResult = httpd_resp_set_hdr(
+                    request,
+                    "Cache-Control",
+                    "no-store, no-cache, must-revalidate, max-age=0");
+            }
 
-            // Permite, futuramente, acesso por app ou página hospedada
-            // em outra origem. Para produção, a política poderá ser
-            // restringida.
-            httpd_resp_set_hdr(
-                request,
-                "Access-Control-Allow-Origin",
-                "*");
+            if (responseResult == ESP_OK)
+            {
+                responseResult = httpd_resp_set_hdr(
+                    request,
+                    "Pragma",
+                    "no-cache");
+            }
 
-            const esp_err_t responseResult =
-                httpd_resp_send(
+            if (responseResult == ESP_OK)
+            {
+                responseResult = httpd_resp_set_hdr(
+                    request,
+                    "Access-Control-Allow-Origin",
+                    "*");
+            }
+
+            const int64_t sendStartUs =
+                esp_timer_get_time();
+
+            if (responseResult == ESP_OK)
+            {
+                responseResult = httpd_resp_send(
                     request,
                     reinterpret_cast<const char *>(frame->buf),
                     frame->len);
+            }
 
+            const int64_t sendElapsedUs =
+                esp_timer_get_time() - sendStartUs;
+
+            // O buffer precisa permanecer válido até o término
+            // de httpd_resp_send().
             CameraService::releaseFrame(frame);
 
-            const int64_t elapsedUs =
+            const int64_t totalElapsedUs =
                 esp_timer_get_time() - requestStartUs;
 
-            Serial.printf(
-                "[HTTP] /capture: %lu bytes enviados em %" PRId64 " ms\n",
-                static_cast<unsigned long>(frameLength),
-                elapsedUs / 1000);
-
-            if (responseResult != ESP_OK)
+            if (responseResult == ESP_OK)
             {
                 Serial.printf(
-                    "[HTTP] Falha no envio: 0x%04X (%s)\n",
-                    static_cast<unsigned int>(responseResult),
-                    esp_err_to_name(responseResult));
+                    "[HTTP] /capture OK | "
+                    "%lux%lu | "
+                    "%lu bytes | "
+                    "captura=%" PRId64 " ms | "
+                    "envio=%" PRId64 " ms | "
+                    "total=%" PRId64 " ms\n",
+                    static_cast<unsigned long>(frameWidth),
+                    static_cast<unsigned long>(frameHeight),
+                    static_cast<unsigned long>(frameLength),
+                    captureElapsedUs / 1000,
+                    sendElapsedUs / 1000,
+                    totalElapsedUs / 1000);
+
+                return ESP_OK;
             }
+
+            Serial.printf(
+                "[HTTP] /capture FALHOU | "
+                "%lux%lu | "
+                "%lu bytes | "
+                "captura=%" PRId64 " ms | "
+                "envio=%" PRId64 " ms | "
+                "total=%" PRId64 " ms | "
+                "erro=0x%04X (%s)\n",
+                static_cast<unsigned long>(frameWidth),
+                static_cast<unsigned long>(frameHeight),
+                static_cast<unsigned long>(frameLength),
+                captureElapsedUs / 1000,
+                sendElapsedUs / 1000,
+                totalElapsedUs / 1000,
+                static_cast<unsigned int>(responseResult),
+                esp_err_to_name(responseResult));
 
             return responseResult;
         }
@@ -444,6 +613,11 @@ namespace WebServerService
         config.max_uri_handlers = 8;
         config.stack_size = 8192;
         config.lru_purge_enable = true;
+
+        // Limita o tempo durante o qual um cliente lento ou desconectado
+        // pode manter o handler bloqueado.
+        config.recv_wait_timeout = 5;
+        config.send_wait_timeout = 5;
 
         Serial.println("[HTTP] Iniciando servidor na porta 80...");
 
